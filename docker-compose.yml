@@ -1,5 +1,3 @@
-
-
 services:
   nodered:
     image: nodered/node-red:latest
@@ -8,11 +6,13 @@ services:
     ports:
       - "1880:1880"
     volumes:
-      - ./nodered:/data       # Persistencia de flujos y base de datos SQLite (si la pones aquí)
-      - ./sql:/data/sql       # Para que Node-RED pueda leer tus scripts .sql iniciales
+      - ./nodered:/data       # Persistencia de flujos y base de datos SQLite
+      - ./sql:/data/sql       # Para que Node-RED pueda leer tus scripts .sql
+    env_file:
+      - .env                  # <--- ESTO ES LO QUE FALTABA
     environment:
       - TZ=America/Mexico_City
-      - GEMINI_API_KEY=${GEMINI_API_KEY} # La variable de entorno que le pedimos
+      - GEMINI_API_KEY=${GEMINI_API_KEY} 
     
     # --- ACCESO A HARDWARE ---
     privileged: true # Opción A: Le da acceso total al hardware host. Ideal para no pelear con SPI/USB de inicio.
