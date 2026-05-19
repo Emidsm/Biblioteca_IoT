@@ -1,0 +1,35 @@
+
+
+services:
+  nodered:
+    image: nodered/node-red:latest
+    container_name: biblioteca_nodered
+    restart: always
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./nodered:/data       # Persistencia de flujos y base de datos SQLite (si la pones aquí)
+      - ./sql:/data/sql       # Para que Node-RED pueda leer tus scripts .sql iniciales
+    environment:
+      - TZ=America/Mexico_City
+      - GEMINI_API_KEY=${GEMINI_API_KEY} # La variable de entorno que le pedimos
+    
+    # --- ACCESO A HARDWARE ---
+    privileged: true # Opción A: Le da acceso total al hardware host. Ideal para no pelear con SPI/USB de inicio.
+    # devices:       # Opción B: Mapeo estricto. Descomenta si prefieres pasar puertos específicos.
+    #   - "/dev/ttyUSB0:/dev/ttyUSB0" # Ejemplo para el escáner QR o Impresora
+    #   - "/dev/spidev0.0:/dev/spidev0.0" # Ejemplo para el RC522
+
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: biblioteca_mqtt
+    restart: always
+    ports:
+      - "1883:1883" # Puerto MQTT estándar
+      - "9001:9001" # WebSockets (por si la interfaz web ocupa suscribirse directo)
+    volumes:
+      - ./docker/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./docker/mosquitto/data:/mosquitto/data
+      - ./docker/mosquitto/log:/mosquitto/log
+    environment:
+      - TZ=America/Mexico_City
