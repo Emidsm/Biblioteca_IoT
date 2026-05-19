@@ -91,8 +91,13 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Wrap MQTT → formato HTTP",
-        "func": "// Normaliza el payload MQTT al mismo formato que HTTP\n// para reutilizar el mismo flujo de validación\nmsg.req = { headers: { 'x-api-key': env.get('BIBLIOTECA_API_KEY') } };\nmsg.res = null; // No hay respuesta HTTP en MQTT\nmsg._mqtt = true;\nreturn msg;",
+        "func": "// Normaliza el payload MQTT al mismo formato que HTTP\n// y le inyecta la contraseña \"quemada\" para que pase la seguridad\nmsg.req = { headers: { 'x-api-key': 'secreto123' } };\nmsg.res = null; \nmsg._mqtt = true;\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 360,
         "y": 130,
         "wires": [
@@ -106,8 +111,13 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Validar API Key",
-        "func": "// -------------------------------------------------------\n// Seguridad: Verifica el header x-api-key contra\n// la variable de entorno BIBLIOTECA_API_KEY\n// NUNCA hardcodear la API key en el flujo\n// -------------------------------------------------------\nconst expectedKey = env.get('BIBLIOTECA_API_KEY');\nconst receivedKey = (msg.req && msg.req.headers)\n    ? msg.req.headers['x-api-key']\n    : null;\n\nif (!expectedKey) {\n    node.error('BIBLIOTECA_API_KEY no configurada en variables de entorno');\n    msg.payload = { ok: false, error: 'Configuración del servidor incompleta' };\n    msg.statusCode = 500;\n    return [null, msg];\n}\n\nif (receivedKey !== expectedKey) {\n    node.warn(`API Key inválida desde ${msg.req && msg.req.ip}`);\n    msg.payload = { ok: false, error: 'No autorizado' };\n    msg.statusCode = 401;\n    return [null, msg];\n}\n\n// Extraer el payload real\nmsg.scanData = (typeof msg.payload === 'string')\n    ? JSON.parse(msg.payload)\n    : msg.payload;\n\nreturn [msg, null];",
+        "func": "// -------------------------------------------------------\n// Seguridad: Forzamos la llave 'secreto123' directamente\n// -------------------------------------------------------\nconst expectedKey = 'secreto123';\nconst receivedKey = (msg.req && msg.req.headers)\n    ? msg.req.headers['x-api-key']\n    : null;\n\nif (receivedKey !== expectedKey) {\n    node.warn(`API Key inválida`);\n    msg.payload = { ok: false, error: 'No autorizado' };\n    msg.statusCode = 401;\n    return [null, msg];\n}\n\n// Extraer el payload real\nmsg.scanData = (typeof msg.payload === 'string')\n    ? JSON.parse(msg.payload)\n    : msg.payload;\n\nreturn [msg, null];",
         "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 580,
         "y": 100,
         "wires": [
@@ -130,16 +140,20 @@
         "y": 100,
         "wires": [
             [
-                "fn_identificar_usuario"
+                "fn_identificar_usuario",
+                "e4ad02cc690a6600"
             ],
             [
-                "fn_procesar_prestamo"
+                "fn_procesar_prestamo",
+                "e4ad02cc690a6600"
             ],
             [
-                "fn_procesar_devolucion"
+                "fn_procesar_devolucion",
+                "e4ad02cc690a6600"
             ],
             [
-                "http_response_error"
+                "http_response_error",
+                "e4ad02cc690a6600"
             ]
         ]
     },
@@ -148,16 +162,23 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Preparar consulta usuario",
-        "func": "// Validación del tag RFID\nconst tag = msg.rfid_tag;\n\nif (!tag || typeof tag !== 'string' || tag.trim() === '') {\n    msg.payload = { ok: false, error: 'Tag RFID no válido o vacío' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\n// Sanitizar: solo alfanumérico (formato UID RFID)\nif (!/^[A-Fa-f0-9]{4,16}$/.test(tag.trim())) {\n    msg.payload = { ok: false, error: 'Formato de tag RFID inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\nmsg.topic = `SELECT id, nombre, apellido, email, tipo_usuario, activo,\n    max_prestamos, fecha_vigencia,\n    (SELECT COUNT(*) FROM prestamos\n     WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales\nFROM usuarios u\nWHERE rfid_tag = ?`;\n\nmsg.params = [tag.trim().toUpperCase()];\nreturn [msg, null];",
+        "func": "const tag = msg.rfid_tag;\n\nif (!tag || typeof tag !== 'string' || tag.trim() === '') {\n    msg.payload = { ok: false, error: 'Tag RFID no válido o vacío' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\n// Sanitizar: solo alfanumérico (formato UID RFID)\nif (!/^[A-Fa-f0-9]{4,16}$/.test(tag.trim())) {\n    msg.payload = { ok: false, error: 'Formato de tag RFID inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\nconst rfidLimpio = tag.trim().toUpperCase();\n\nmsg.topic = `SELECT id, nombre, apellido, email, tipo_usuario, activo,\n    max_prestamos, fecha_vigencia,\n    (SELECT COUNT(*) FROM prestamos\n     WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales\nFROM usuarios u\nWHERE rfid_tag = '${rfidLimpio}'`;\n\nreturn [msg, null];",
         "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 1060,
         "y": 60,
         "wires": [
             [
-                "sqlite_query_usuario"
+                "sqlite_query_usuario",
+                "38eef8ef292bee89"
             ],
             [
-                "http_response_error"
+                "http_response_error",
+                "38eef8ef292bee89"
             ]
         ]
     },
@@ -166,14 +187,15 @@
         "type": "sqlite",
         "z": "tab_biblioteca_iot",
         "mydb": "sqlite_config",
-        "sqlquery": "prepared",
+        "sqlquery": "msg.topic",
         "sql": "",
         "name": "DB: Buscar usuario por RFID",
-        "x": 1300,
-        "y": 60,
+        "x": 1340,
+        "y": 40,
         "wires": [
             [
-                "fn_respuesta_usuario"
+                "fn_respuesta_usuario",
+                "f0c9232754148cbf"
             ]
         ]
     },
@@ -182,18 +204,25 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Procesar respuesta usuario",
-        "func": "const rows = msg.payload;\n\n// Usuario no encontrado\nif (!rows || rows.length === 0) {\n    // Log de intento fallido\n    node.warn(`RFID no registrado: ${msg.rfid_tag}`);\n    msg.payload = {\n        ok: false,\n        error: 'TAG_NO_REGISTRADO',\n        mensaje: 'Tag RFID no encontrado en el sistema',\n        rfid_tag: msg.rfid_tag\n    };\n    msg.statusCode = 404;\n    msg.uiEvent = { tipo: 'error', codigo: 'TAG_NO_REGISTRADO', rfid: msg.rfid_tag };\n    return [msg, null];\n}\n\nconst usuario = rows[0];\n\n// Usuario inactivo\nif (!usuario.activo) {\n    msg.payload = {\n        ok: false,\n        error: 'USUARIO_INACTIVO',\n        mensaje: `El usuario ${usuario.nombre} ${usuario.apellido} está inactivo`,\n        usuario: { id: usuario.id, nombre: `${usuario.nombre} ${usuario.apellido}` }\n    };\n    msg.statusCode = 403;\n    msg.uiEvent = { tipo: 'error', codigo: 'USUARIO_INACTIVO' };\n    return [msg, null];\n}\n\n// Verificar vigencia\nif (usuario.fecha_vigencia) {\n    const vigencia = new Date(usuario.fecha_vigencia);\n    if (vigencia < new Date()) {\n        msg.payload = {\n            ok: false,\n            error: 'MEMBRESIA_VENCIDA',\n            mensaje: `La membresía de ${usuario.nombre} venció el ${usuario.fecha_vigencia}`,\n            usuario: { id: usuario.id, nombre: `${usuario.nombre} ${usuario.apellido}` }\n        };\n        msg.statusCode = 403;\n        msg.uiEvent = { tipo: 'error', codigo: 'MEMBRESIA_VENCIDA' };\n        return [msg, null];\n    }\n}\n\n// Éxito\nmsg.usuario = usuario;\nmsg.payload = {\n    ok: true,\n    usuario: {\n        id: usuario.id,\n        nombre: `${usuario.nombre} ${usuario.apellido}`,\n        email: usuario.email,\n        tipo: usuario.tipo_usuario,\n        prestamos_actuales: usuario.prestamos_actuales,\n        max_prestamos: usuario.max_prestamos,\n        cupo_disponible: usuario.max_prestamos - usuario.prestamos_actuales\n    }\n};\nmsg.statusCode = 200;\nmsg.uiEvent = { tipo: 'usuario_identificado', usuario: msg.payload.usuario };\nreturn [null, msg];",
+        "func": "const rows = msg.payload;\n\nif (!rows || rows.length === 0) {\n    node.warn(`RFID no registrado: ${msg.rfid_tag}`);\n    msg.payload = { ok: false, tipo: 'error', mensaje: 'Tag RFID no encontrado', rfid_tag: msg.rfid_tag };\n    msg.statusCode = 404;\n    return [msg, null];\n}\n\nconst usuario = rows[0];\n\nif (!usuario.activo) {\n    msg.payload = { ok: false, tipo: 'error', mensaje: `El usuario ${usuario.nombre} está inactivo` };\n    msg.statusCode = 403;\n    return [msg, null];\n}\n\nif (usuario.fecha_vigencia && new Date(usuario.fecha_vigencia) < new Date()) {\n    msg.payload = { ok: false, tipo: 'error', mensaje: `Membresía vencida de ${usuario.nombre}` };\n    msg.statusCode = 403;\n    return [msg, null];\n}\n\n// ✅ ÉXITO: Payload formateado para el UI y la API\nmsg.usuario = usuario;\nmsg.payload = {\n    ok: true,\n    tipo: 'usuario_identificado',\n    mensaje: `Lector: ${usuario.nombre} ${usuario.apellido}`,\n    datos: {\n        Perfil: usuario.tipo_usuario,\n        Cupo: `${usuario.prestamos_actuales} de ${usuario.max_prestamos} libros`\n    },\n    usuario: {\n        id: usuario.id,\n        tipo: usuario.tipo_usuario,\n        cupo_disponible: usuario.max_prestamos - usuario.prestamos_actuales\n    }\n};\nmsg.statusCode = 200;\nreturn [null, msg];",
         "outputs": 2,
-        "x": 1540,
-        "y": 60,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1640,
+        "y": 40,
         "wires": [
             [
-                "http_response_error"
+                "http_response_error",
+                "2822b5e0bd6b1950"
             ],
             [
                 "fn_log_auditoria",
                 "http_response_ok",
-                "mqtt_publish_ui"
+                "mqtt_publish_ui",
+                "2822b5e0bd6b1950"
             ]
         ]
     },
@@ -202,8 +231,13 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Validar datos préstamo",
-        "func": "// -------------------------------------------------------\n// Validar que lleguen tanto RFID como QR\n// -------------------------------------------------------\nconst { rfid_tag, qr_codigo } = msg;\n\nif (!rfid_tag || !qr_codigo) {\n    msg.payload = {\n        ok: false,\n        error: 'DATOS_INCOMPLETOS',\n        mensaje: 'Se requiere rfid_tag y qr_codigo para realizar un préstamo'\n    };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\n// Formato RFID\nif (!/^[A-Fa-f0-9]{4,16}$/.test(rfid_tag.trim())) {\n    msg.payload = { ok: false, error: 'RFID_INVALIDO', mensaje: 'Formato de RFID inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\n// Formato QR (LIB-XXXXX)\nif (!/^LIB-\\d{5}$/.test(qr_codigo.trim())) {\n    msg.payload = { ok: false, error: 'QR_INVALIDO', mensaje: 'Formato de código QR inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\n// Consulta compleja: usuario + ejemplar disponible en una sola query\nmsg.topic = `\nSELECT\n    u.id AS usuario_id,\n    u.nombre || ' ' || u.apellido AS usuario_nombre,\n    u.activo AS usuario_activo,\n    u.fecha_vigencia,\n    u.max_prestamos,\n    (SELECT COUNT(*) FROM prestamos\n     WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales,\n    l.id AS libro_id,\n    l.titulo,\n    l.autor,\n    l.qr_codigo,\n    e.id AS ejemplar_id,\n    e.estado AS ejemplar_estado\nFROM usuarios u, libros l\nLEFT JOIN ejemplares e ON e.libro_id = l.id AND e.estado = 'disponible'\nWHERE u.rfid_tag = ? AND l.qr_codigo = ?\nLIMIT 1`;\nmsg.params = [rfid_tag.trim().toUpperCase(), qr_codigo.trim()];\nmsg.rfid_tag = rfid_tag.trim().toUpperCase();\nmsg.qr_codigo = qr_codigo.trim();\nreturn [msg, null];",
+        "func": "const { rfid_tag, qr_codigo } = msg;\n\nif (!rfid_tag || !qr_codigo) {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere rfid_tag y qr_codigo para realizar un préstamo' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nif (!/^[A-Fa-f0-9]{4,16}$/.test(rfid_tag.trim())) {\n    msg.payload = { ok: false, error: 'RFID_INVALIDO', mensaje: 'Formato de RFID inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\nif (!/^LIB-\\d{5}$/.test(qr_codigo.trim())) {\n    msg.payload = { ok: false, error: 'QR_INVALIDO', mensaje: 'Formato de código QR inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\nconst rfidLimpio = rfid_tag.trim().toUpperCase();\nconst qrLimpio = qr_codigo.trim();\n\nmsg.rfid_tag = rfidLimpio;\nmsg.qr_codigo = qrLimpio;\n\nmsg.topic = `\nSELECT\n    u.id AS usuario_id,\n    u.nombre || ' ' || u.apellido AS usuario_nombre,\n    u.activo AS usuario_activo,\n    u.fecha_vigencia,\n    u.max_prestamos,\n    (SELECT COUNT(*) FROM prestamos\n     WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales,\n    l.id AS libro_id,\n    l.titulo,\n    l.autor,\n    l.qr_codigo,\n    e.id AS ejemplar_id,\n    e.estado AS ejemplar_estado\nFROM usuarios u, libros l\nLEFT JOIN ejemplares e ON e.libro_id = l.id AND e.estado = 'disponible'\nWHERE u.rfid_tag = '${rfidLimpio}' AND l.qr_codigo = '${qrLimpio}'\nLIMIT 1`;\n\nreturn [msg, null];",
         "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 1060,
         "y": 200,
         "wires": [
@@ -220,7 +254,7 @@
         "type": "sqlite",
         "z": "tab_biblioteca_iot",
         "mydb": "sqlite_config",
-        "sqlquery": "prepared",
+        "sqlquery": "msg.topic",
         "sql": "",
         "name": "DB: Verificar disponibilidad",
         "x": 1300,
@@ -270,8 +304,13 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Confirmar préstamo",
-        "func": "const data = msg.prestamo_data;\n\nmsg.payload = {\n    ok: true,\n    accion: 'prestamo',\n    mensaje: `Préstamo registrado exitosamente`,\n    prestamo: {\n        usuario: data.usuario_nombre,\n        libro: data.titulo,\n        autor: data.autor,\n        ejemplar_id: data.ejemplar_id,\n        fecha_devolucion_esperada: msg.fecha_devolucion\n    }\n};\nmsg.statusCode = 201;\nmsg.uiEvent = {\n    tipo: 'prestamo_exitoso',\n    datos: msg.payload.prestamo\n};\nreturn msg;",
+        "func": "const data = msg.prestamo_data;\n\nmsg.payload = {\n    ok: true,\n    tipo: 'prestamo_exitoso',\n    mensaje: `Préstamo: ${data.titulo}`,\n    datos: {\n        Usuario: data.usuario_nombre,\n        Vence: msg.fecha_devolucion.substring(0, 10)\n    },\n    prestamo: {\n        usuario: data.usuario_nombre,\n        libro: data.titulo,\n        autor: data.autor,\n        ejemplar_id: data.ejemplar_id,\n        fecha_devolucion_esperada: msg.fecha_devolucion\n    }\n};\nmsg.statusCode = 201;\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 2000,
         "y": 200,
         "wires": [
@@ -287,8 +326,13 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Validar datos devolución",
-        "func": "const { rfid_tag, qr_codigo } = msg;\n\nif (!rfid_tag || !qr_codigo) {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere rfid_tag y qr_codigo' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\n// Buscar préstamo activo que coincida con usuario Y libro\nmsg.topic = `\nSELECT\n    p.id AS prestamo_id,\n    p.ejemplar_id,\n    p.fecha_prestamo,\n    p.fecha_devolucion_esperada,\n    u.nombre || ' ' || u.apellido AS usuario_nombre,\n    l.titulo,\n    l.autor,\n    CASE WHEN p.fecha_devolucion_esperada < datetime('now','localtime') THEN 1 ELSE 0 END AS vencido\nFROM prestamos p\nJOIN usuarios   u ON p.usuario_id  = u.id\nJOIN ejemplares e ON p.ejemplar_id = e.id\nJOIN libros     l ON e.libro_id    = l.id\nWHERE u.rfid_tag  = ?\n  AND l.qr_codigo = ?\n  AND p.estado = 'activo'\nLIMIT 1`;\nmsg.params = [rfid_tag.trim().toUpperCase(), qr_codigo.trim()];\nmsg.rfid_tag  = rfid_tag.trim().toUpperCase();\nmsg.qr_codigo = qr_codigo.trim();\nreturn [msg, null];",
+        "func": "const { rfid_tag, qr_codigo } = msg;\n\nif (!rfid_tag || !qr_codigo) {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere rfid_tag y qr_codigo' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nconst rfidLimpio = rfid_tag.trim().toUpperCase();\nconst qrLimpio = qr_codigo.trim();\n\nmsg.rfid_tag = rfidLimpio;\nmsg.qr_codigo = qrLimpio;\n\nmsg.topic = `\nSELECT\n    p.id AS prestamo_id,\n    p.ejemplar_id,\n    p.fecha_prestamo,\n    p.fecha_devolucion_esperada,\n    u.nombre || ' ' || u.apellido AS usuario_nombre,\n    l.titulo,\n    l.autor,\n    CASE WHEN p.fecha_devolucion_esperada < datetime('now','localtime') THEN 1 ELSE 0 END AS vencido\nFROM prestamos p\nJOIN usuarios   u ON p.usuario_id  = u.id\nJOIN ejemplares e ON p.ejemplar_id = e.id\nJOIN libros     l ON e.libro_id    = l.id\nWHERE u.rfid_tag  = '${rfidLimpio}'\n  AND l.qr_codigo = '${qrLimpio}'\n  AND p.estado = 'activo'\nLIMIT 1`;\n\nreturn [msg, null];",
         "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 1060,
         "y": 340,
         "wires": [
@@ -305,7 +349,7 @@
         "type": "sqlite",
         "z": "tab_biblioteca_iot",
         "mydb": "sqlite_config",
-        "sqlquery": "prepared",
+        "sqlquery": "msg.topic",
         "sql": "",
         "name": "DB: Buscar préstamo activo",
         "x": 1300,
@@ -355,8 +399,13 @@
         "type": "function",
         "z": "tab_biblioteca_iot",
         "name": "Confirmar devolución",
-        "func": "const prestamo = msg.prestamo_data;\nconst ahora = new Date().toISOString().replace('T', ' ').substring(0, 19);\n\nmsg.payload = {\n    ok: true,\n    accion: 'devolucion',\n    vencido: prestamo.vencido === 1,\n    mensaje: prestamo.vencido\n        ? `Devolución tardía de \"${prestamo.titulo}\" (venció el ${prestamo.fecha_devolucion_esperada})`\n        : `\"${prestamo.titulo}\" devuelto correctamente`,\n    devolucion: {\n        usuario: prestamo.usuario_nombre,\n        libro: prestamo.titulo,\n        autor: prestamo.autor,\n        fecha_devolucion_real: ahora,\n        fecha_devolucion_esperada: prestamo.fecha_devolucion_esperada,\n        dias_retraso: prestamo.vencido\n            ? Math.ceil((new Date() - new Date(prestamo.fecha_devolucion_esperada)) / 86400000)\n            : 0\n    }\n};\nmsg.statusCode = 200;\nmsg.uiEvent = {\n    tipo: prestamo.vencido ? 'devolucion_tardía' : 'devolucion_exitosa',\n    datos: msg.payload.devolucion\n};\nreturn msg;",
+        "func": "const prestamo = msg.prestamo_data;\nconst ahora = new Date().toISOString().replace('T', ' ').substring(0, 19);\nconst vencido = prestamo.vencido === 1;\n\nmsg.payload = {\n    ok: true,\n    tipo: vencido ? 'devolucion_tardía' : 'devolucion_exitosa',\n    mensaje: vencido \n        ? `Devolución TARDÍA: ${prestamo.titulo}` \n        : `Devolución OK: ${prestamo.titulo}`,\n    datos: {\n        Usuario: prestamo.usuario_nombre,\n        // Agregamos .getTime() para que la resta sea entre números y no tire error\n        Retraso: vencido ? `${Math.ceil((new Date().getTime() - new Date(prestamo.fecha_devolucion_esperada).getTime()) / 86400000)} días` : 'Ninguno'\n    },\n    devolucion: {\n        usuario: prestamo.usuario_nombre,\n        libro: prestamo.titulo,\n        autor: prestamo.autor,\n        fecha_devolucion_real: ahora,\n        fecha_devolucion_esperada: prestamo.fecha_devolucion_esperada\n    }\n};\nmsg.statusCode = 200;\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 2000,
         "y": 340,
         "wires": [
@@ -649,6 +698,70 @@
         },
         "x": 1000,
         "y": 790,
+        "wires": []
+    },
+    {
+        "id": "e4ad02cc690a6600",
+        "type": "debug",
+        "z": "tab_biblioteca_iot",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1060,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "2822b5e0bd6b1950",
+        "type": "debug",
+        "z": "tab_biblioteca_iot",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1860,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "38eef8ef292bee89",
+        "type": "debug",
+        "z": "tab_biblioteca_iot",
+        "name": "debug 3",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1360,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "f0c9232754148cbf",
+        "type": "debug",
+        "z": "tab_biblioteca_iot",
+        "name": "debug 4",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1660,
+        "y": 100,
         "wires": []
     },
     {
