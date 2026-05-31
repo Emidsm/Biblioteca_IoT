@@ -1,0 +1,1378 @@
+[
+    {
+        "id": "3b6fce683d31f02e",
+        "type": "tab",
+        "label": "Biblioteca IoT - Principal",
+        "disabled": false,
+        "info": "Flujo principal del sistema de biblioteca IoT.\nManeja RFID, préstamos, devoluciones y dashboard."
+    },
+    {
+        "id": "b7e1ba8308c39b87",
+        "type": "tab",
+        "label": "Respaldos Automáticos",
+        "disabled": false,
+        "info": "Cron de respaldo periódico del archivo SQLite."
+    },
+    {
+        "id": "mqtt_broker_config",
+        "type": "mqtt-broker",
+        "name": "Mosquitto Local",
+        "broker": "mosquitto",
+        "port": "1883",
+        "clientid": "nodered-biblioteca",
+        "autoConnect": true,
+        "usetls": false,
+        "compatmode": false,
+        "protocolVersion": 4,
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "biblioteca/sistema/status",
+        "birthQos": "1",
+        "birthPayload": "{\"status\":\"online\",\"ts\":\"{{{timestamp}}}\"}",
+        "birthMsg": {},
+        "closeTopic": "biblioteca/sistema/status",
+        "closeQos": "1",
+        "closePayload": "{\"status\":\"offline\"}",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "7d57faacb03b73be",
+        "type": "sqlitedb",
+        "z": "3b6fce683d31f02e",
+        "db": "/data/biblioteca/biblioteca.db",
+        "mode": "RWC"
+    },
+    {
+        "id": "b8e8292e38785dcd",
+        "type": "postgreSQLConfig",
+        "name": "postgres",
+        "host": "postgres",
+        "hostFieldType": "str",
+        "port": 5432,
+        "portFieldType": "num",
+        "database": "bibliosys",
+        "databaseFieldType": "str",
+        "ssl": "false",
+        "sslFieldType": "bool",
+        "applicationName": "",
+        "applicationNameType": "str",
+        "max": 10,
+        "maxFieldType": "num",
+        "idle": 1000,
+        "idleFieldType": "num",
+        "connectionTimeout": 10000,
+        "connectionTimeoutFieldType": "num",
+        "user": "admin_biblioteca",
+        "userFieldType": "str",
+        "password": "tu_password_seguro",
+        "passwordFieldType": "str"
+    },
+    {
+        "id": "754e2d07d3ac196d",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/rfid/scan",
+        "url": "/api/rfid/scan",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 90,
+        "y": 40,
+        "wires": [
+            [
+                "b54b654d2737bb23"
+            ]
+        ]
+    },
+    {
+        "id": "971fdd1e06455ba6",
+        "type": "mqtt in",
+        "z": "3b6fce683d31f02e",
+        "name": "MQTT biblioteca/rfid/scan",
+        "topic": "biblioteca/rfid/scan",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "mqtt_broker_config",
+        "nl": false,
+        "rap": false,
+        "inputs": 0,
+        "x": 110,
+        "y": 120,
+        "wires": [
+            [
+                "b77382f5952517a1"
+            ]
+        ]
+    },
+    {
+        "id": "b77382f5952517a1",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Guardar RFID en flow context",
+        "func": "const tag = (msg.payload && msg.payload.rfid_tag) ? msg.payload.rfid_tag : (typeof msg.payload === 'string' ? msg.payload : null);\n\nif (!tag || !/^[A-Fa-f0-9]{4,16}$/.test(tag.trim())) return null;\n\nconst rfidLimpio = tag.trim().toUpperCase();\nconst rfidActual = flow.get('ultimo_rfid');\n\n// Lógica Toggle: Si el tag escanedo es el mismo que está activo, cerramos sesión\nif (rfidActual === rfidLimpio) {\n    flow.set('ultimo_rfid', null);\n    flow.set('rfid_ts', null);\n    flow.set('usuario_activo', null);\n    \n    msg.rfid_tag = rfidLimpio;\n    msg.is_logout = true; \n    // Truco: Mandamos una query inofensiva para que el nodo Postgres no truene\n    msg.query = \"SELECT 1 AS logout\"; \n    return msg;\n}\n\n// Si es un tag nuevo, abrimos sesión normal\nflow.set('ultimo_rfid', rfidLimpio);\nflow.set('rfid_ts', new Date().toISOString());\n\nmsg.rfid_tag = rfidLimpio;\nmsg.query = `SELECT id, nombre, apellido, tipo_usuario, activo,\n    max_prestamos, fecha_vigencia,\n    (SELECT COUNT(*) FROM prestamos WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales\nFROM usuarios u WHERE rfid_tag = '${rfidLimpio}' LIMIT 1`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 250,
+        "y": 200,
+        "wires": [
+            [
+                "c30244ef36b04f22"
+            ]
+        ]
+    },
+    {
+        "id": "c30244ef36b04f22",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Lookup usuario por RFID",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 530,
+        "y": 200,
+        "wires": [
+            [
+                "67a3b0ccb3f9319f"
+            ]
+        ]
+    },
+    {
+        "id": "67a3b0ccb3f9319f",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Publicar usuario al dashboard",
+        "func": "const rows = msg.payload;\n\nif (msg.is_logout) {\n    msg.payload = JSON.stringify({ tipo: 'rfid_cerrado', ok: true, mensaje: 'Sesión finalizada por usuario' });\n    return msg;\n}\n\nif (!rows || rows.length === 0) {\n    msg.payload = JSON.stringify({\n        tipo: 'rfid_desconocido',\n        mensaje: 'Tag RFID no registrado: ' + msg.rfid_tag,\n        ok: false\n    });\n} else {\n    const u = rows[0];\n    flow.set('usuario_activo', u);\n    msg.payload = JSON.stringify({\n        tipo: 'rfid_ok',\n        ok: true,\n        usuario: {\n            id: u.id,\n            nombre: u.nombre + ' ' + u.apellido,\n            tipo: u.tipo_usuario,\n            cupo: u.max_prestamos - parseInt(u.prestamos_actuales)\n        },\n        mensaje: `✅ ${u.nombre} ${u.apellido} (${u.tipo_usuario}) — Cupo: ${u.max_prestamos - parseInt(u.prestamos_actuales)}`\n    });\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 800,
+        "y": 200,
+        "wires": [
+            [
+                "1ae43d76bf9089aa"
+            ]
+        ]
+    },
+    {
+        "id": "f80499824c041015",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Wrap MQTT → formato HTTP",
+        "func": "msg.req = { headers: { 'x-api-key': 'secreto123' } };\nmsg.res = null;\nmsg._mqtt = true;\nreturn msg;",
+        "outputs": 1,
+        "x": 350,
+        "y": 100,
+        "wires": [
+            [
+                "b54b654d2737bb23"
+            ]
+        ]
+    },
+    {
+        "id": "b54b654d2737bb23",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Validar API Key",
+        "func": "const expectedKey = 'secreto123';\nconst receivedKey = (msg.req && msg.req.headers)\n    ? msg.req.headers['x-api-key']\n    : null;\n\nif (receivedKey !== expectedKey) {\n    node.warn('API Key inválida');\n    msg.payload = { ok: false, error: 'No autorizado' };\n    msg.statusCode = 401;\n    return [null, msg];\n}\n\nmsg.scanData = (typeof msg.payload === 'string')\n    ? JSON.parse(msg.payload)\n    : msg.payload;\n\nreturn [msg, null];",
+        "outputs": 2,
+        "x": 580,
+        "y": 60,
+        "wires": [
+            [
+                "1382701a2f31eb86"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "1382701a2f31eb86",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Enrutar por tipo de escaneo",
+        "func": "const scan = msg.scanData || {};\n\nif (!scan.tipo) {\n    msg.payload = { ok: false, error: 'Payload inválido: falta campo tipo' };\n    msg.statusCode = 400;\n    return [null, null, null, msg];\n}\n\nmsg.origen = scan.origen || 'desconocido';\n\nswitch (scan.tipo) {\n    case 'identificar_usuario':\n        msg.rfid_tag = scan.rfid_tag;\n        return [msg, null, null, null];\n    case 'prestamo':\n        msg.rfid_tag = scan.rfid_tag;\n        msg.libro_id = scan.libro_id || null;\n        msg.qr_codigo = scan.qr_codigo || null;\n        return [null, msg, null, null];\n    case 'devolucion':\n        msg.rfid_tag = scan.rfid_tag;\n        msg.qr_codigo = scan.qr_codigo || null;\n        msg.prestamo_id = scan.prestamo_id || null;\n        return [null, null, msg, null];\n    default:\n        msg.payload = { ok: false, error: `Tipo desconocido: ${scan.tipo}` };\n        msg.statusCode = 400;\n        return [null, null, null, msg];\n}",
+        "outputs": 4,
+        "x": 820,
+        "y": 60,
+        "wires": [
+            [
+                "b41f87860b3ed0d1"
+            ],
+            [
+                "5151530f327c815d"
+            ],
+            [
+                "909a76780a0a4f49"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "b41f87860b3ed0d1",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Preparar consulta usuario",
+        "func": "const tag = msg.rfid_tag;\n\nif (!tag || typeof tag !== 'string' || tag.trim() === '') {\n    msg.payload = { ok: false, error: 'Tag RFID no válido o vacío' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nif (!/^[A-Fa-f0-9]{4,16}$/.test(tag.trim())) {\n    msg.payload = { ok: false, error: 'Formato de tag RFID inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\nconst rfidLimpio = tag.trim().toUpperCase();\nmsg.rfid_tag = rfidLimpio;\nmsg.query = `SELECT id, nombre, apellido, email, tipo_usuario, activo,\n    max_prestamos, fecha_vigencia,\n    (SELECT COUNT(*) FROM prestamos WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales\nFROM usuarios u\nWHERE rfid_tag = '${rfidLimpio}'\nLIMIT 1`;\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 20,
+        "wires": [
+            [
+                "d3ae61bcb8f46362"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "d3ae61bcb8f46362",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Buscar usuario por RFID",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1340,
+        "y": 20,
+        "wires": [
+            [
+                "392f630828b746be"
+            ]
+        ]
+    },
+    {
+        "id": "392f630828b746be",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Procesar respuesta usuario",
+        "func": "const rows = msg.payload;\n\nif (!rows || rows.length === 0) {\n    node.warn(`RFID no registrado: ${msg.rfid_tag}`);\n    msg.payload = { ok: false, tipo: 'error', mensaje: 'Tag RFID no encontrado', rfid_tag: msg.rfid_tag };\n    msg.statusCode = 404;\n    return [msg, null];\n}\n\nconst usuario = rows[0];\n\n// activo es SMALLINT: 0 o 1\nif (parseInt(usuario.activo) !== 1) {\n    msg.payload = { ok: false, tipo: 'error', mensaje: `El usuario ${usuario.nombre} está inactivo` };\n    msg.statusCode = 403;\n    return [msg, null];\n}\n\nif (usuario.fecha_vigencia && new Date(usuario.fecha_vigencia) < new Date()) {\n    msg.payload = { ok: false, tipo: 'error', mensaje: `Membresía vencida de ${usuario.nombre}` };\n    msg.statusCode = 403;\n    return [msg, null];\n}\n\nmsg.usuario = usuario;\nmsg.payload = {\n    ok: true,\n    tipo: 'usuario_identificado',\n    mensaje: `Lector: ${usuario.nombre} ${usuario.apellido}`,\n    datos: {\n        Perfil: usuario.tipo_usuario,\n        Cupo: `${usuario.prestamos_actuales} de ${usuario.max_prestamos} libros`\n    },\n    usuario: {\n        id: usuario.id,\n        tipo: usuario.tipo_usuario,\n        cupo_disponible: usuario.max_prestamos - parseInt(usuario.prestamos_actuales)\n    }\n};\nmsg.statusCode = 200;\nreturn [null, msg];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1640,
+        "y": 20,
+        "wires": [
+            [
+                "516460013d8aefc0"
+            ],
+            [
+                "451c9e2de2d90b9f",
+                "84133175416978f2",
+                "1ae43d76bf9089aa"
+            ]
+        ]
+    },
+    {
+        "id": "5151530f327c815d",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Validar datos préstamo",
+        "func": "const { rfid_tag, libro_id, qr_codigo } = msg;\n\nif (!rfid_tag) {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere rfid_tag' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\nif (!libro_id && !qr_codigo) {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere libro_id o qr_codigo' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\nif (!/^[A-Fa-f0-9]{4,16}$/.test(rfid_tag.trim())) {\n    msg.payload = { ok: false, error: 'RFID_INVALIDO', mensaje: 'Formato de RFID inválido' };\n    msg.statusCode = 422;\n    return [null, msg];\n}\n\nconst rfidLimpio = rfid_tag.trim().toUpperCase();\nmsg.rfid_tag = rfidLimpio;\n\nlet libroWhere = '';\nif (libro_id) {\n    libroWhere = `l.id = ${parseInt(libro_id)}`;\n} else {\n    const qrLimpio = qr_codigo.trim();\n    msg.qr_codigo = qrLimpio;\n    libroWhere = `l.qr_codigo = '${qrLimpio}'`;\n}\n\n// FIX: cross join explícito con ON para evitar producto cartesiano\nmsg.query = `\nSELECT\n    u.id AS usuario_id,\n    u.nombre || ' ' || u.apellido AS usuario_nombre,\n    u.activo AS usuario_activo,\n    u.fecha_vigencia,\n    u.max_prestamos,\n    (SELECT COUNT(*) FROM prestamos WHERE usuario_id = u.id AND estado = 'activo') AS prestamos_actuales,\n    l.id AS libro_id,\n    l.titulo,\n    l.autor,\n    l.qr_codigo,\n    e.id AS ejemplar_id,\n    e.estado AS ejemplar_estado,\n    -- Agrega esta subconsulta:\n    (SELECT COUNT(*) FROM prestamos p2 JOIN ejemplares e2 ON p2.ejemplar_id = e2.id\n     WHERE p2.usuario_id = u.id AND e2.libro_id = l.id AND p2.estado = 'activo') AS tiene_copia\nFROM usuarios u\nCROSS JOIN libros l\nLEFT JOIN ejemplares e ON e.libro_id = l.id AND e.estado = 'disponible'\nWHERE u.rfid_tag = '${rfidLimpio}' AND ${libroWhere}\nLIMIT 1`;\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 160,
+        "wires": [
+            [
+                "4988243cd89c8080"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "4988243cd89c8080",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Verificar disponibilidad",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1300,
+        "y": 160,
+        "wires": [
+            [
+                "2476c6ec358bfd01"
+            ]
+        ]
+    },
+    {
+        "id": "2476c6ec358bfd01",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Lógica de préstamo",
+        "func": "const rows = msg.payload;\n\nif (!rows || rows.length === 0) {\n    msg.payload = { ok: false, error: 'TAG_NO_REGISTRADO', mensaje: 'RFID no encontrado' };\n    msg.statusCode = 404;\n    return [null, msg];\n}\n\nconst data = rows[0];\n\nif (!data.libro_id) {\n    msg.payload = { ok: false, error: 'LIBRO_NO_ENCONTRADO', mensaje: 'El libro no existe en el catálogo' };\n    msg.statusCode = 404;\n    return [null, msg];\n}\n\n// activo es SMALLINT\nif (parseInt(data.usuario_activo) !== 1) {\n    msg.payload = { ok: false, error: 'USUARIO_INACTIVO', mensaje: 'Usuario inactivo' };\n    msg.statusCode = 403;\n    return [null, msg];\n}\n\nif (data.fecha_vigencia && new Date(data.fecha_vigencia) < new Date()) {\n    msg.payload = { ok: false, error: 'MEMBRESIA_VENCIDA', mensaje: 'Membresía vencida' };\n    msg.statusCode = 403;\n    return [null, msg];\n}\n\n// Si ya tiene una copia y NO ha confirmado desde el frontend:\nif (parseInt(data.tiene_copia) > 0 && msg.confirmado !== true) {\n    msg.payload = {\n        ok: false,\n        error: 'CONFIRMACION_REQUERIDA',\n        mensaje: `Ya tienes un ejemplar de \"${data.titulo}\" en préstamo actualmente. ¿Seguro que quieres pedir otra copia?`\n    };\n    msg.statusCode = 409;\n    return [null, msg];\n}\n\nif (parseInt(data.prestamos_actuales) >= parseInt(data.max_prestamos)) {\n    msg.payload = {\n        ok: false,\n        error: 'CUPO_AGOTADO',\n        mensaje: `${data.usuario_nombre} ya tiene ${data.prestamos_actuales}/${data.max_prestamos} préstamos activos`\n    };\n    msg.statusCode = 409;\n    return [null, msg];\n}\n\nif (data.ejemplar_estado !== 'disponible' || !data.ejemplar_id) {\n    msg.payload = {\n        ok: false,\n        error: 'SIN_EJEMPLARES',\n        mensaje: `\"${data.titulo}\" no tiene ejemplares disponibles`\n    };\n    msg.statusCode = 409;\n    return [null, msg];\n}\n\nmsg.prestamo_data = data;\n\nconst diasPrestamo = 14;\nconst devolucion = new Date();\ndevolucion.setDate(devolucion.getDate() + diasPrestamo);\nmsg.fecha_devolucion = devolucion.toISOString().replace('T', ' ').substring(0, 19);\n\nconst qrVal = (data.qr_codigo || msg.qr_codigo || '').replace(/'/g, \"''\");\nconst rfidVal = (msg.rfid_tag || '').replace(/'/g, \"''\");\nconst tituloEsc = data.titulo.replace(/'/g, \"''\");\nconst payloadRaw = JSON.stringify({ rfid: rfidVal, libro_id: data.libro_id }).replace(/'/g, \"''\");\n\n// PostgreSQL: una sola llamada con BEGIN/COMMIT\nmsg.query = `BEGIN;\nUPDATE ejemplares SET estado = 'prestado' WHERE id = ${data.ejemplar_id};\nINSERT INTO prestamos (usuario_id, ejemplar_id, fecha_devolucion_esperada, estado, rfid_prestamo, qr_prestamo)\n    VALUES (${data.usuario_id}, ${data.ejemplar_id}, '${msg.fecha_devolucion}', 'activo', '${rfidVal}', '${qrVal}');\nINSERT INTO audit_log (tipo, origen, usuario_id, ejemplar_id, mensaje, payload_raw)\n    VALUES ('prestamo', 'web_catalog', ${data.usuario_id}, ${data.ejemplar_id}, 'Préstamo: ${tituloEsc}', '${payloadRaw}');\nCOMMIT;`;\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1540,
+        "y": 160,
+        "wires": [
+            [
+                "811fbcdb80b42eea"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "811fbcdb80b42eea",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Ejecutar transacción préstamo",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1800,
+        "y": 160,
+        "wires": [
+            [
+                "bad06b607b8ce0d8"
+            ]
+        ]
+    },
+    {
+        "id": "bad06b607b8ce0d8",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Confirmar préstamo",
+        "func": "const data = msg.prestamo_data;\n\nmsg.payload = {\n    ok: true,\n    tipo: 'prestamo_exitoso',\n    mensaje: `Préstamo: ${data.titulo}`,\n    datos: {\n        Usuario: data.usuario_nombre,\n        Vence: msg.fecha_devolucion.substring(0, 10)\n    },\n    prestamo: {\n        usuario: data.usuario_nombre,\n        libro: data.titulo,\n        autor: data.autor,\n        ejemplar_id: data.ejemplar_id,\n        fecha_devolucion_esperada: msg.fecha_devolucion\n    }\n};\nmsg.statusCode = 201;\nreturn msg;",
+        "outputs": 1,
+        "x": 2060,
+        "y": 160,
+        "wires": [
+            [
+                "84133175416978f2",
+                "1ae43d76bf9089aa",
+                "451c9e2de2d90b9f"
+            ]
+        ]
+    },
+    {
+        "id": "909a76780a0a4f49",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Validar datos devolución",
+        "func": "const { rfid_tag, qr_codigo, prestamo_id } = msg;\n\nif (!rfid_tag) {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere rfid_tag' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nconst rfidLimpio = rfid_tag.trim().toUpperCase();\nmsg.rfid_tag = rfidLimpio;\n\nlet whereClause = '';\nif (prestamo_id) {\n    whereClause = `p.id = ${parseInt(prestamo_id)} AND u.rfid_tag = '${rfidLimpio}'`;\n} else if (qr_codigo) {\n    const qrLimpio = qr_codigo.trim();\n    whereClause = `u.rfid_tag = '${rfidLimpio}' AND l.qr_codigo = '${qrLimpio}'`;\n} else {\n    msg.payload = { ok: false, error: 'DATOS_INCOMPLETOS', mensaje: 'Se requiere qr_codigo o prestamo_id' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nmsg.query = `\nSELECT\n    p.id AS prestamo_id,\n    p.ejemplar_id,\n    p.fecha_prestamo,\n    p.fecha_devolucion_esperada,\n    u.nombre || ' ' || u.apellido AS usuario_nombre,\n    l.titulo,\n    l.autor,\n    CASE WHEN p.fecha_devolucion_esperada < CURRENT_TIMESTAMP THEN 1 ELSE 0 END AS vencido\nFROM prestamos p\nJOIN usuarios u ON p.usuario_id = u.id\nJOIN ejemplares e ON p.ejemplar_id = e.id\nJOIN libros l ON e.libro_id = l.id\nWHERE ${whereClause}\n  AND p.estado = 'activo'\nLIMIT 1`;\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 300,
+        "wires": [
+            [
+                "ce266f0a711f59d1"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "ce266f0a711f59d1",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Buscar préstamo activo",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1300,
+        "y": 280,
+        "wires": [
+            [
+                "147cbb8d8449b51b"
+            ]
+        ]
+    },
+    {
+        "id": "147cbb8d8449b51b",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Lógica de devolución",
+        "func": "const rows = msg.payload;\n\nif (!rows || rows.length === 0) {\n    msg.payload = {\n        ok: false,\n        error: 'PRESTAMO_NO_ENCONTRADO',\n        mensaje: 'No se encontró un préstamo activo para este usuario y libro'\n    };\n    msg.statusCode = 404;\n    return [null, msg];\n}\n\nconst prestamo = rows[0];\nmsg.prestamo_data = prestamo;\n\nconst ahora = new Date().toISOString().replace('T', ' ').substring(0, 19);\nconst tituloEsc = prestamo.titulo.replace(/'/g, \"''\");\nconst nombreEsc = prestamo.usuario_nombre.replace(/'/g, \"''\");\nconst payloadRaw = JSON.stringify({ prestamo_id: prestamo.prestamo_id }).replace(/'/g, \"''\");\n\nmsg.query = `BEGIN;\nUPDATE prestamos SET estado = 'devuelto', fecha_devolucion_real = '${ahora}', rfid_devolucion = '${msg.rfid_tag}' WHERE id = ${prestamo.prestamo_id};\nUPDATE ejemplares SET estado = 'disponible' WHERE id = ${prestamo.ejemplar_id};\nINSERT INTO audit_log (tipo, origen, mensaje, payload_raw)\n    VALUES ('devolucion', 'iot', 'Devolución: ${tituloEsc} por ${nombreEsc}', '${payloadRaw}');\nCOMMIT;`;\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1520,
+        "y": 260,
+        "wires": [
+            [
+                "16031b581acb9bab"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "16031b581acb9bab",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Ejecutar devolución",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1770,
+        "y": 260,
+        "wires": [
+            [
+                "51253ad953813591"
+            ]
+        ]
+    },
+    {
+        "id": "51253ad953813591",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Confirmar devolución",
+        "func": "const prestamo = msg.prestamo_data;\nconst ahora = new Date().toISOString().replace('T', ' ').substring(0, 19);\nconst vencido = parseInt(prestamo.vencido) === 1;\n\nmsg.payload = {\n    ok: true,\n    tipo: vencido ? 'devolucion_tardía' : 'devolucion_exitosa',\n    mensaje: vencido\n        ? `Devolución TARDÍA: ${prestamo.titulo}`\n        : `Devolución OK: ${prestamo.titulo}`,\n    datos: {\n        Usuario: prestamo.usuario_nombre,\n        Retraso: vencido\n            ? `${Math.ceil((new Date() - new Date(prestamo.fecha_devolucion_esperada)) / 86400000)} días`\n            : 'Ninguno'\n    },\n    devolucion: {\n        usuario: prestamo.usuario_nombre,\n        libro: prestamo.titulo,\n        autor: prestamo.autor,\n        fecha_devolucion_real: ahora,\n        fecha_devolucion_esperada: prestamo.fecha_devolucion_esperada\n    }\n};\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "x": 2000,
+        "y": 300,
+        "wires": [
+            [
+                "84133175416978f2",
+                "1ae43d76bf9089aa",
+                "451c9e2de2d90b9f"
+            ]
+        ]
+    },
+    {
+        "id": "639556de1d5aab07",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "GET /api/stats",
+        "url": "/api/stats",
+        "method": "get",
+        "x": 140,
+        "y": 440,
+        "wires": [
+            [
+                "e14bd6edab058ac8"
+            ]
+        ]
+    },
+    {
+        "id": "e14bd6edab058ac8",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Stats",
+        "query": "SELECT\n  (SELECT row_to_json(e) FROM estadisticas_dashboard e) AS estadisticas,\n  COALESCE(\n    (SELECT json_agg(p) FROM\n      (SELECT * FROM prestamos_activos ORDER BY vencido DESC, fecha_devolucion_esperada ASC LIMIT 20) p\n    ), '[]'::json\n  ) AS prestamos_activos;",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 560,
+        "y": 440,
+        "wires": [
+            [
+                "d021a4b13084b1ce"
+            ]
+        ]
+    },
+    {
+        "id": "d021a4b13084b1ce",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Formatear stats",
+        "func": "const dbResult = msg.payload[0] || {};\nmsg.payload = {\n    ok: true,\n    timestamp: new Date().toISOString(),\n    estadisticas: dbResult.estadisticas || {},\n    prestamos_activos: dbResult.prestamos_activos || []\n};\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "x": 780,
+        "y": 440,
+        "wires": [
+            [
+                "84133175416978f2"
+            ]
+        ]
+    },
+    {
+        "id": "6e35214b55be4731",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "GET /api/catalogo",
+        "url": "/api/catalogo",
+        "method": "get",
+        "x": 140,
+        "y": 500,
+        "wires": [
+            [
+                "41dd6b2f0344e1b0"
+            ]
+        ]
+    },
+    {
+        "id": "41dd6b2f0344e1b0",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Catálogo",
+        "query": "SELECT\n    l.id, l.titulo, l.autor, l.isbn, l.editorial,\n    l.anio_publicacion, l.genero, l.qr_codigo, l.ubicacion,\n    COUNT(e.id) FILTER (WHERE e.estado = 'disponible') AS disponibles,\n    COUNT(e.id) AS total_ejemplares\nFROM libros l\nLEFT JOIN ejemplares e ON e.libro_id = l.id\nWHERE l.activo = 1\nGROUP BY l.id\nORDER BY l.titulo ASC;",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 560,
+        "y": 500,
+        "wires": [
+            [
+                "f1900178f9ccaab1"
+            ]
+        ]
+    },
+    {
+        "id": "f1900178f9ccaab1",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Formatear catálogo",
+        "func": "msg.payload = { ok: true, libros: msg.payload || [] };\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "x": 780,
+        "y": 500,
+        "wires": [
+            [
+                "84133175416978f2"
+            ]
+        ]
+    },
+    {
+        "id": "f4dd9909279443cb",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "GET /api/auditoria",
+        "url": "/api/auditoria",
+        "method": "get",
+        "x": 140,
+        "y": 560,
+        "wires": [
+            [
+                "a1efdaf83f498283"
+            ]
+        ]
+    },
+    {
+        "id": "a1efdaf83f498283",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Auditoría",
+        "query": "SELECT\n    a.id, a.timestamp, a.tipo, a.origen,\n    COALESCE(u.nombre || ' ' || u.apellido, '—') AS usuario,\n    a.mensaje\nFROM audit_log a\nLEFT JOIN usuarios u ON a.usuario_id = u.id\nORDER BY a.timestamp DESC\nLIMIT 100;",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 560,
+        "y": 560,
+        "wires": [
+            [
+                "4ac9bbfbbe93df58"
+            ]
+        ]
+    },
+    {
+        "id": "4ac9bbfbbe93df58",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Formatear auditoría",
+        "func": "msg.payload = { ok: true, registros: msg.payload || [] };\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "x": 780,
+        "y": 560,
+        "wires": [
+            [
+                "84133175416978f2"
+            ]
+        ]
+    },
+    {
+        "id": "cbde506a0497c51a",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "GET /api/deudores",
+        "url": "/api/deudores",
+        "method": "get",
+        "x": 140,
+        "y": 620,
+        "wires": [
+            [
+                "8933439464b7ead9"
+            ]
+        ]
+    },
+    {
+        "id": "8933439464b7ead9",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Deudores",
+        "query": "SELECT\n    u.id AS usuario_id, u.nombre, u.apellido, u.email,\n    u.tipo_usuario, u.rfid_tag, u.activo, -- Agregamos u.activo aquí\n    COUNT(p.id) AS prestamos_vencidos,\n    MIN(p.fecha_devolucion_esperada) AS vencimiento_mas_antiguo,\n    STRING_AGG(l.titulo, ' | ') AS libros_pendientes\nFROM prestamos p\nJOIN usuarios u ON p.usuario_id = u.id\nJOIN ejemplares e ON p.ejemplar_id = e.id\nJOIN libros l ON e.libro_id = l.id\nWHERE p.estado = 'activo'\n  AND p.fecha_devolucion_esperada < CURRENT_TIMESTAMP\nGROUP BY u.id, u.nombre, u.apellido, u.email, u.tipo_usuario, u.rfid_tag, u.activo -- Y también en el GROUP BY\nORDER BY prestamos_vencidos DESC, vencimiento_mas_antiguo ASC;",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 560,
+        "y": 620,
+        "wires": [
+            [
+                "6aa7685d700a4e77"
+            ]
+        ]
+    },
+    {
+        "id": "6aa7685d700a4e77",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Formatear deudores",
+        "func": "msg.payload = { ok: true, deudores: msg.payload || [] };\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "x": 780,
+        "y": 620,
+        "wires": [
+            [
+                "84133175416978f2"
+            ]
+        ]
+    },
+    {
+        "id": "64d5296f2b6cc39f",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/banear",
+        "url": "/api/banear",
+        "method": "post",
+        "x": 140,
+        "y": 680,
+        "wires": [
+            [
+                "ad6004060ea2935c"
+            ]
+        ]
+    },
+    {
+        "id": "01d2f76683d43dfd",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Ejecutar baneo en DB",
+        "func": "const d = msg.ban_data;\nconst emailEsc = (d.email || '').replace(/'/g, \"''\");\nconst payloadRaw = JSON.stringify({ prestamos_vencidos: d.prestamos_vencidos, libros: d.libros_pendientes }).replace(/'/g, \"''\");\n\nconst data = msg.payload || {};\n\nif (data.candidates && data.candidates[0]) {\n    msg.correo_gemini = data.candidates[0].content.parts[0].text;\n} else {\n    msg.correo_gemini = `Estimado/a ${d.nombre} ${d.apellido},\\n\\nLe notificamos que su cuenta en la Biblioteca Universitaria BiblioSys ha sido SUSPENDIDA temporalmente.\\n\\nMotivo: Préstamos vencidos (${d.prestamos_vencidos} libro(s) pendiente(s)).\\nTítulos: ${d.libros_pendientes || 'No especificados'}\\n\\nPara reactivar su acceso, por favor devuelva los ejemplares en el mostrador de la biblioteca lo antes posible.\\n\\nAtentamente,\\nSistema BiblioSys - Biblioteca Universitaria`;\n}\n\nmsg.query = `BEGIN;\nUPDATE usuarios SET activo = 0 WHERE id = ${d.usuario_id};\nINSERT INTO audit_log (tipo, origen, usuario_id, mensaje, payload_raw)\n    VALUES ('baneo', 'api', ${d.usuario_id},\n    'Usuario baneado. Email enviado a ${emailEsc}',\n    '${payloadRaw}');\nCOMMIT;`;\n\nmsg.ban_usuario = d;\n\n// Construir el cuerpo del correo\nif (data.candidates && data.candidates[0]) {\n    msg.correo_gemini = data.candidates[0].content.parts[0].text;\n} else {\n    msg.correo_gemini = `Estimado/a ${d.nombre} ${d.apellido},\\n\\n...`;\n}\n\nmsg.to      = d.email;\nmsg.topic   = \"Aviso Importante: Suspensión de cuenta BiblioSys\";\nmsg.payload = String(msg.correo_gemini).trim().replace(/\\\\n/g, '\\n');\nmsg.contentType = \"text/plain\"; // 👈 esto es clave\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 800,
+        "y": 680,
+        "wires": [
+            [
+                "36737d006c2313c2",
+                "fead4767a22adf7f",
+                "357db84402578a9e"
+            ]
+        ]
+    },
+    {
+        "id": "36737d006c2313c2",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Ejecutar baneo",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1050,
+        "y": 680,
+        "wires": [
+            [
+                "89f41aec8d5a6a98",
+                "fead4767a22adf7f"
+            ]
+        ]
+    },
+    {
+        "id": "89f41aec8d5a6a98",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Respuesta baneo",
+        "func": "const d = msg.ban_usuario;\nmsg.payload = {\n    ok: true,\n    mensaje: `Usuario ${d.nombre} ${d.apellido} baneado correctamente`,\n    email_generado: msg.correo_gemini,\n    usuario: d\n};\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "x": 1290,
+        "y": 680,
+        "wires": [
+            [
+                "84133175416978f2",
+                "fead4767a22adf7f"
+            ]
+        ]
+    },
+    {
+        "id": "ebefb6ab4d916484",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/prestamo/web",
+        "url": "/api/prestamo/web",
+        "method": "post",
+        "x": 140,
+        "y": 740,
+        "wires": [
+            [
+                "1f03fcab50ea3d1b"
+            ]
+        ]
+    },
+    {
+        "id": "1f03fcab50ea3d1b",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Préstamo web (RFID + libro_id)",
+        "func": "const d = (typeof msg.payload === 'string') ? JSON.parse(msg.payload) : msg.payload;\n\nconst rfid = flow.get('ultimo_rfid');\nconst rfid_ts = flow.get('rfid_ts');\n\nif (!rfid) {\n    msg.payload = { ok: false, error: 'SIN_RFID', mensaje: 'No hay ningún tag RFID activo. Acerca tu tarjeta al lector primero.' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nif (rfid_ts) {\n        const segundos = (Date.now() - new Date(rfid_ts).getTime()) / 1000;    if (segundos > 300) {\n        flow.set('ultimo_rfid', null);\n        flow.set('usuario_activo', null);\n        msg.payload = { ok: false, error: 'RFID_EXPIRADO', mensaje: 'La sesión RFID expiró. Vuelve a acercar tu tarjeta al lector.' };\n        msg.statusCode = 400;\n        return [null, msg];\n    }\n}\n\nif (!d || !d.libro_id) {\n    msg.payload = { ok: false, error: 'LIBRO_REQUERIDO', mensaje: 'Selecciona un libro del catálogo' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nmsg.rfid_tag = rfid;\nmsg.libro_id = d.libro_id;\nmsg.confirmado = d.confirmado === true;\nmsg.req = msg.req || { headers: {} };\nmsg.origen = 'web_catalog';\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 470,
+        "y": 740,
+        "wires": [
+            [
+                "5151530f327c815d"
+            ],
+            [
+                "516460013d8aefc0"
+            ]
+        ]
+    },
+    {
+        "id": "a344e84fb9dbdad9",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/usuarios",
+        "url": "/api/usuarios",
+        "method": "post",
+        "x": 150,
+        "y": 940,
+        "wires": [
+            [
+                "c2b5d93034757755"
+            ]
+        ]
+    },
+    {
+        "id": "c2b5d93034757755",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Insert Usuario",
+        "func": "const d = msg.payload;\n\n// El string del SQL DEBE ir en msg.query\nmsg.query = `INSERT INTO usuarios\n    (nombre, apellido, email, rfid_tag, tipo_usuario, max_prestamos, fecha_vigencia, activo)\n    VALUES ($1, $2, $3, $4, $5, $6, $7, 1)\n    RETURNING id`;\n\n// Los parámetros se quedan en msg.params para evitar inyecciones SQL\nmsg.params = [\n    d.nombre,\n    d.apellido,\n    d.email,\n    d.rfid_tag,\n    d.tipo_usuario,\n    d.max_prestamos || 3,\n    d.fecha_vigencia || null\n];\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 940,
+        "wires": [
+            [
+                "49bfec8f40a11b2e"
+            ]
+        ]
+    },
+    {
+        "id": "49bfec8f40a11b2e",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Insert Usuario",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 590,
+        "y": 940,
+        "wires": [
+            [
+                "6dc4f0564f057a6b"
+            ]
+        ]
+    },
+    {
+        "id": "fe492f3f30653142",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/libros",
+        "url": "/api/libros",
+        "method": "post",
+        "x": 150,
+        "y": 1000,
+        "wires": [
+            [
+                "c7ca3ad9e4a6c2a8"
+            ]
+        ]
+    },
+    {
+        "id": "c7ca3ad9e4a6c2a8",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Insert Libro",
+        "func": "const d = msg.payload;\nconst tituloEsc    = (d.titulo    || '').replace(/'/g, \"''\");\nconst autorEsc     = (d.autor     || '').replace(/'/g, \"''\");\nconst isbnEsc      = (d.isbn      || '').replace(/'/g, \"''\");\nconst editorialEsc = (d.editorial || '').replace(/'/g, \"''\");\nconst anio = d.anio ? parseInt(d.anio) : null;\n\n// PostgreSQL: CTE para obtener el id del libro recién insertado\nmsg.query = `\nWITH nuevo_libro AS (\n    INSERT INTO libros (titulo, autor, isbn, editorial, anio_publicacion, qr_codigo)\n    VALUES ('${tituloEsc}', '${autorEsc}', '${isbnEsc}', '${editorialEsc}',\n            ${anio !== null ? anio : 'NULL'}, '${d.qr_codigo}')\n    RETURNING id\n)\nINSERT INTO ejemplares (libro_id, estado)\nSELECT id, 'disponible' FROM nuevo_libro`;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 1000,
+        "wires": [
+            [
+                "af3aa9b25bbcfc67"
+            ]
+        ]
+    },
+    {
+        "id": "af3aa9b25bbcfc67",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Insert Libro",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 590,
+        "y": 1000,
+        "wires": [
+            [
+                "6dc4f0564f057a6b"
+            ]
+        ]
+    },
+    {
+        "id": "6dc4f0564f057a6b",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Respuesta 201 OK",
+        "func": "msg.payload = { ok: true };\nmsg.statusCode = 201;\nreturn msg;",
+        "outputs": 1,
+        "x": 810,
+        "y": 970,
+        "wires": [
+            [
+                "1756dea763aececb"
+            ]
+        ]
+    },
+    {
+        "id": "1756dea763aececb",
+        "type": "http response",
+        "z": "3b6fce683d31f02e",
+        "name": "HTTP JSON",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 1010,
+        "y": 970,
+        "wires": []
+    },
+    {
+        "id": "7c0df16de3701b70",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "GET /dashboard",
+        "url": "/dashboard",
+        "method": "get",
+        "x": 150,
+        "y": 1080,
+        "wires": [
+            [
+                "4d9f409f58b1f0f0"
+            ]
+        ]
+    },
+    {
+        "id": "84133175416978f2",
+        "type": "http response",
+        "z": "3b6fce683d31f02e",
+        "name": "HTTP 200/201",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 1940,
+        "y": 640,
+        "wires": []
+    },
+    {
+        "id": "516460013d8aefc0",
+        "type": "http response",
+        "z": "3b6fce683d31f02e",
+        "name": "HTTP Error",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 2200,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "1ae43d76bf9089aa",
+        "type": "mqtt out",
+        "z": "3b6fce683d31f02e",
+        "name": "MQTT → UI Dashboard",
+        "topic": "biblioteca/ui/eventos",
+        "qos": "1",
+        "retain": false,
+        "broker": "mqtt_broker_config",
+        "x": 2390,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "451c9e2de2d90b9f",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Log a consola",
+        "func": "if (env.get('NODE_ENV') !== 'production') {\n    node.log(`[AUDIT] ${(msg.payload && msg.payload.tipo) || 'evento'}: ${JSON.stringify(msg.payload)}`);\n}\nreturn null;",
+        "outputs": 0,
+        "x": 2220,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "4d9f409f58b1f0f0",
+        "type": "template",
+        "z": "3b6fce683d31f02e",
+        "name": "HTML Dashboard",
+        "field": "payload",
+        "fieldType": "msg",
+        "format": "html",
+        "syntax": "html",
+        "template": "<!DOCTYPE html>\n<html lang=\"es\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n<title>BiblioSys — Panel de Control</title>\n<script src=\"https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js\"></script>\n<script src=\"https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js\"></script>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link href=\"https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;1,9..144,400&display=swap\" rel=\"stylesheet\">\n<style>\n:root {\n  --bg: #0f0e0b; --bg2: #181712; --bg3: #211f18;\n  --border: #2e2b22; --ink: #e8e2d4; --ink2: #9a9080; --ink3: #5a5448;\n  --gold: #c8a84b; --gold2: #8c6e28; --green: #4caf7d; --red: #d64f3c;\n  --amber: #e09b3a; --blue: #4a8fc4;\n  --font-serif: 'Fraunces', Georgia, serif;\n  --font-mono: 'DM Mono', monospace;\n  --radius: 6px;\n}\n*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }\nhtml { font-size: 15px; }\nbody { background: var(--bg); color: var(--ink); font-family: var(--font-mono); min-height: 100vh; line-height: 1.6; }\n\n.shell { display: grid; grid-template-rows: auto auto 1fr; min-height: 100vh; }\n\n/* HEADER */\nheader {\n  display: flex; align-items: center; justify-content: space-between;\n  padding: 0 2rem; height: 56px;\n  border-bottom: 1px solid var(--border); background: var(--bg2);\n  position: sticky; top: 0; z-index: 100;\n}\n.header-brand { display: flex; align-items: center; gap: .75rem; }\n.header-brand .logo {\n  width: 32px; height: 32px; background: var(--gold);\n  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);\n  display: grid; place-items: center; font-size: .7rem; font-weight: 500; color: var(--bg);\n}\n.header-brand h1 { font-family: var(--font-serif); font-size: 1.15rem; font-weight: 700; color: var(--ink); letter-spacing: -.02em; }\n.header-brand span { color: var(--gold); }\n.header-right { display: flex; align-items: center; gap: 1.5rem; }\n.status-pill { display: flex; align-items: center; gap: .4rem; font-size: .75rem; color: var(--ink2); }\n.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink3); transition: background .3s; }\n.status-dot.online  { background: var(--green); box-shadow: 0 0 6px var(--green); }\n.status-dot.offline { background: var(--red); }\n#clock { font-size: .78rem; color: var(--ink3); }\n\n/* NAV — FIJO, sin wrap */\nnav {\n  display: flex; gap: 0;\n  padding: 0 2rem;\n  background: var(--bg2);\n  border-bottom: 1px solid var(--border);\n  overflow-x: auto;\n  overflow-y: hidden;\n  white-space: nowrap;\n  height: 42px;\n  flex-shrink: 0;\n  /* Scrollbar delgada */\n  scrollbar-width: thin;\n  scrollbar-color: var(--border) transparent;\n}\nnav::-webkit-scrollbar { height: 3px; }\nnav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }\nnav button {\n  display: inline-flex; align-items: center;\n  background: none; border: none; cursor: pointer;\n  font-family: var(--font-mono); font-size: .78rem;\n  color: var(--ink3); padding: 0 1.1rem;\n  height: 42px;\n  border-bottom: 2px solid transparent;\n  transition: color .2s, border-color .2s;\n  white-space: nowrap; flex-shrink: 0;\n}\nnav button:hover { color: var(--ink2); }\nnav button.active { color: var(--gold); border-bottom-color: var(--gold); }\n\n/* MAIN */\nmain { padding: 2rem; max-width: 1400px; margin: 0 auto; width: 100%; }\n.tab-panel { display: none; }\n.tab-panel.active { display: block; }\n\n/* CARD */\n.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; }\n.card-title { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); margin-bottom: 1rem; }\n\n/* KPIs */\n.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }\n.kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; position: relative; overflow: hidden; transition: border-color .2s; }\n.kpi::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--accent, var(--gold)); }\n.kpi:hover { border-color: var(--accent, var(--gold)); }\n.kpi-label { font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--ink3); margin-bottom: .5rem; }\n.kpi-value { font-family: var(--font-serif); font-size: 2.2rem; font-weight: 700; line-height: 1; color: var(--accent, var(--gold)); }\n.kpi-sub { font-size: .7rem; color: var(--ink3); margin-top: .35rem; }\n\n/* TABLA */\n.table-wrap { overflow-x: auto; }\ntable { width: 100%; border-collapse: collapse; font-size: .8rem; }\nthead th { text-align: left; font-size: .65rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink3); padding: .6rem .8rem; border-bottom: 1px solid var(--border); }\ntbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }\ntbody tr:hover { background: var(--bg3); }\ntbody td { padding: .6rem .8rem; color: var(--ink2); }\ntbody td:first-child { color: var(--ink); }\n.badge { display: inline-block; padding: .15rem .5rem; border-radius: 3px; font-size: .65rem; letter-spacing: .05em; text-transform: uppercase; }\n.badge-green  { background: rgba(76,175,125,.15); color: var(--green); }\n.badge-red    { background: rgba(214,79,60,.15);  color: var(--red); }\n.badge-amber  { background: rgba(224,155,58,.15); color: var(--amber); }\n.badge-blue   { background: rgba(74,143,196,.15); color: var(--blue); }\n.badge-gold   { background: rgba(200,168,75,.15); color: var(--gold); }\n\n/* FORMS */\n.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }\n.field { display: flex; flex-direction: column; gap: .35rem; }\n.field label { font-size: .7rem; letter-spacing: .07em; text-transform: uppercase; color: var(--ink3); }\n.field input, .field select, .field textarea { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: .55rem .75rem; color: var(--ink); font-family: var(--font-mono); font-size: .82rem; outline: none; transition: border-color .2s; }\n.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--gold); }\n.field input::placeholder { color: var(--ink3); }\n\n/* BOTONES */\n.btn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem 1.25rem; border-radius: var(--radius); font-family: var(--font-mono); font-size: .8rem; font-weight: 500; cursor: pointer; border: none; transition: opacity .2s, transform .1s; }\n.btn:active { transform: scale(.97); }\n.btn:disabled { opacity: .4; cursor: not-allowed; }\n.btn-gold   { background: var(--gold); color: var(--bg); }\n.btn-ghost  { background: transparent; border: 1px solid var(--border); color: var(--ink2); }\n.btn-ghost:hover { border-color: var(--ink2); }\n.btn-red    { background: rgba(214,79,60,.2); color: var(--red); border: 1px solid rgba(214,79,60,.3); }\n.btn-green  { background: rgba(76,175,125,.2); color: var(--green); border: 1px solid rgba(76,175,125,.3); }\n\n/* FEED */\n.event-feed { display: flex; flex-direction: column; gap: .5rem; max-height: 420px; overflow-y: auto; padding-right: .25rem; }\n.event-feed::-webkit-scrollbar { width: 4px; }\n.event-feed::-webkit-scrollbar-track { background: var(--bg3); }\n.event-feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }\n.event-item { display: grid; grid-template-columns: 2.5rem 1fr auto; gap: .75rem; align-items: start; padding: .75rem .9rem; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); animation: slideIn .25s ease; }\n@keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }\n.event-icon { width: 2.5rem; height: 2.5rem; border-radius: 50%; display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; }\n.event-icon.prestamo   { background: rgba(76,175,125,.2);  color: var(--green); }\n.event-icon.devolucion { background: rgba(74,143,196,.2);  color: var(--blue); }\n.event-icon.error      { background: rgba(214,79,60,.2);   color: var(--red); }\n.event-icon.usuario    { background: rgba(200,168,75,.2);  color: var(--gold); }\n.event-icon.sistema    { background: rgba(90,84,72,.2);    color: var(--ink2); }\n.event-body {}\n.event-title { font-size: .82rem; color: var(--ink); margin-bottom: .15rem; }\n.event-meta  { font-size: .72rem; color: var(--ink3); }\n.event-time  { font-size: .7rem; color: var(--ink3); white-space: nowrap; }\n\n/* SECCIÓN */\n.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }\n.section-title { font-family: var(--font-serif); font-size: 1.1rem; font-weight: 300; font-style: italic; color: var(--ink); }\n\n/* QR */\n#qr-preview-box { background: white; padding: 1rem; border-radius: var(--radius); display: inline-block; margin-top: 1rem; }\n#qr-preview-box canvas, #qr-preview-box img { display: block; }\n\n/* GRID 2 */\n.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }\n@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }\n\n/* TOAST */\n#toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; display: flex; flex-direction: column-reverse; gap: .5rem; z-index: 9999; }\n.toast { padding: .75rem 1.1rem; border-radius: var(--radius); font-size: .8rem; max-width: 320px; animation: toastIn .25s ease; border-left: 3px solid; }\n@keyframes toastIn { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }\n.toast-ok   { background: var(--bg3); border-color: var(--green); color: var(--ink); }\n.toast-err  { background: var(--bg3); border-color: var(--red);   color: var(--ink); }\n.toast-warn { background: var(--bg3); border-color: var(--amber); color: var(--ink); }\n\n.empty { text-align: center; padding: 3rem 1rem; color: var(--ink3); font-size: .8rem; }\n.empty big { display: block; font-size: 2rem; margin-bottom: .5rem; }\n\n/* RFID banner */\n#rfid-banner {\n  display: none;\n  position: sticky; top: 56px; z-index: 90;\n  padding: .6rem 2rem;\n  background: rgba(76,175,125,.12);\n  border-bottom: 1px solid rgba(76,175,125,.3);\n  font-size: .8rem; color: var(--green);\n  align-items: center; gap: 1rem;\n}\n#rfid-banner.visible { display: flex; }\n#rfid-banner .rfid-timer { font-size: .72rem; color: var(--ink3); margin-left: auto; }\n\n/* Catálogo grid */\n.catalogo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }\n.libro-card {\n  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);\n  padding: 1rem; cursor: pointer; transition: border-color .2s, background .2s;\n  position: relative;\n}\n.libro-card:hover { border-color: var(--gold2); background: var(--bg3); }\n.libro-card.selected { border-color: var(--gold); background: rgba(200,168,75,.07); }\n.libro-card.sin-stock { opacity: .5; cursor: not-allowed; }\n.libro-card .libro-titulo { font-size: .88rem; color: var(--ink); font-weight: 500; margin-bottom: .25rem; }\n.libro-card .libro-autor  { font-size: .75rem; color: var(--ink3); margin-bottom: .5rem; }\n.libro-card .libro-meta   { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }\n.libro-card .disponibles-pill {\n  position: absolute; top: .7rem; right: .7rem;\n  font-size: .65rem; padding: .2rem .45rem; border-radius: 99px;\n}\n\n/* Modal de correo Gemini */\n#modal-overlay {\n  display: none; position: fixed; inset: 0;\n  background: rgba(0,0,0,.7); z-index: 1000;\n  align-items: center; justify-content: center;\n}\n#modal-overlay.visible { display: flex; }\n#modal-box {\n  background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);\n  padding: 2rem; max-width: 600px; width: 90%; max-height: 80vh;\n  display: flex; flex-direction: column; gap: 1rem;\n}\n#modal-box h3 { font-family: var(--font-serif); font-size: 1.1rem; color: var(--ink); }\n#modal-email-content {\n  flex: 1; overflow-y: auto; background: var(--bg3);\n  border: 1px solid var(--border); border-radius: var(--radius);\n  padding: 1rem; font-size: .8rem; color: var(--ink2); white-space: pre-wrap;\n  line-height: 1.7;\n}\n</style>\n</head>\n<body>\n\n<div id=\"toast-container\"></div>\n\n<!-- Modal correo Gemini -->\n<div id=\"modal-overlay\">\n  <div id=\"modal-box\">\n    <h3>📧 Correo generado por Gemini AI</h3>\n    <p style=\"font-size:.75rem; color:var(--ink3)\">Copia este texto y envíalo al correo del usuario desde tu cliente de correo.</p>\n    <div id=\"modal-email-content\">Generando…</div>\n    <div style=\"display:flex; gap:.75rem; justify-content:flex-end;\">\n      <button class=\"btn btn-ghost\" onclick=\"copiarCorreo()\">📋 Copiar</button>\n      <button class=\"btn btn-ghost\" onclick=\"cerrarModal()\">Cerrar</button>\n    </div>\n  </div>\n</div>\n\n<div class=\"shell\">\n  <header>\n    <div class=\"header-brand\">\n      <div class=\"logo\">📚</div>\n      <h1>Biblio<span>Sys</span></h1>\n    </div>\n    <div class=\"header-right\">\n      <div class=\"status-pill\">\n        <div class=\"status-dot\" id=\"mqtt-dot\"></div>\n        <span id=\"mqtt-label\">MQTT desconectado</span>\n      </div>\n      <div class=\"status-pill\">\n        <div class=\"status-dot\" id=\"api-dot\"></div>\n        <span id=\"api-label\">API —</span>\n      </div>\n      <span id=\"clock\">—</span>\n    </div>\n  </header>\n\n  <!-- RFID Banner -->\n<div id=\"rfid-banner\">\n    <span>🏷️ Tag activo: <strong id=\"rfid-nombre\">—</strong></span>\n    <span id=\"rfid-cupo\" style=\"color:var(--ink2)\"></span>\n    <span class=\"rfid-timer\">Sesión válida <span id=\"rfid-countdown\">5:00</span></span>\n    <button class=\"btn btn-ghost\" style=\"padding:.2rem .5rem; font-size:.7rem; border-color:var(--red); color:var(--red); margin-left:1rem;\" onclick=\"cerrarSesionWeb()\">Cerrar sesión</button>\n  </div>\n\n  <nav id=\"main-nav\">\n    <button class=\"active\" data-tab=\"tab-dashboard\">📊 Dashboard</button>\n    <button data-tab=\"tab-catalogo\">📚 Catálogo / Préstamo</button>\n    <button data-tab=\"tab-prestamos\">📖 Préstamos activos</button>\n    <button data-tab=\"tab-eventos\">⚡ Eventos en vivo</button>\n    <button data-tab=\"tab-deudores\">🚫 Deudores</button>\n    <button data-tab=\"tab-registrar-usuario\">👤 Registrar usuario</button>\n    <button data-tab=\"tab-registrar-libro\">📗 Registrar libro</button>\n    <button data-tab=\"tab-auditoria\">🗂 Auditoría</button>\n    <button data-tab=\"tab-config\">⚙️ Configuración</button>\n  </nav>\n\n  <main>\n\n    <!-- ══════════ DASHBOARD ══════════ -->\n    <div class=\"tab-panel active\" id=\"tab-dashboard\">\n      <div class=\"section-header\" style=\"margin-bottom:1.5rem\">\n        <h2 class=\"section-title\">Resumen del sistema</h2>\n        <button class=\"btn btn-ghost\" onclick=\"loadStats()\">↻ Actualizar</button>\n      </div>\n      <div class=\"kpi-grid\">\n        <div class=\"kpi\" style=\"--accent:var(--gold)\"><div class=\"kpi-label\">Libros totales</div><div class=\"kpi-value\" id=\"kpi-libros\">—</div><div class=\"kpi-sub\">en catálogo</div></div>\n        <div class=\"kpi\" style=\"--accent:var(--blue)\"><div class=\"kpi-label\">Préstamos activos</div><div class=\"kpi-value\" id=\"kpi-prestamos\">—</div><div class=\"kpi-sub\">en circulación</div></div>\n        <div class=\"kpi\" style=\"--accent:var(--red)\"><div class=\"kpi-label\">Vencidos</div><div class=\"kpi-value\" id=\"kpi-vencidos\">—</div><div class=\"kpi-sub\">fuera de fecha</div></div>\n        <div class=\"kpi\" style=\"--accent:var(--green)\"><div class=\"kpi-label\">Usuarios activos</div><div class=\"kpi-value\" id=\"kpi-usuarios\">—</div><div class=\"kpi-sub\">registrados</div></div>\n        <div class=\"kpi\" style=\"--accent:var(--amber)\"><div class=\"kpi-label\">Ejemplares disp.</div><div class=\"kpi-value\" id=\"kpi-disponibles\">—</div><div class=\"kpi-sub\">listos para prestar</div></div>\n        <div class=\"kpi\" style=\"--accent:var(--ink2)\"><div class=\"kpi-label\">Última actualiz.</div><div class=\"kpi-value\" id=\"kpi-ts\" style=\"font-size:1rem; padding-top:.5rem\">—</div><div class=\"kpi-sub\">&nbsp;</div></div>\n      </div>\n      <div class=\"card\">\n        <div class=\"card-title\">Préstamos activos — próximos a vencer primero</div>\n        <div class=\"table-wrap\">\n          <table>\n            <thead><tr><th>Usuario</th><th>Libro</th><th>Desde</th><th>Vence</th><th>Estado</th></tr></thead>\n            <tbody id=\"dash-prestamos-tbody\"><tr><td colspan=\"5\" class=\"empty\"><big>📂</big>Cargando…</td></tr></tbody>\n          </table>\n        </div>\n      </div>\n    </div>\n\n    <!-- ══════════ CATÁLOGO / PRÉSTAMO ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-catalogo\">\n      <div class=\"section-header\">\n        <h2 class=\"section-title\">Catálogo — Seleccionar para prestar</h2>\n        <div style=\"display:flex; gap:.75rem;\">\n          <button class=\"btn btn-ghost\" onclick=\"loadCatalogo()\">↻ Actualizar</button>\n          <button class=\"btn btn-green\" id=\"btn-prestar\" disabled onclick=\"ejecutarPrestamo()\">📖 Prestar libro seleccionado</button>\n        </div>\n      </div>\n\n      <!-- Instrucciones -->\n      <div style=\"background:rgba(74,143,196,.08); border:1px solid rgba(74,143,196,.25); border-radius:var(--radius); padding:.75rem 1rem; margin-bottom:1.5rem; font-size:.8rem; color:var(--blue);\">\n        <strong>Cómo prestar:</strong> 1) El estudiante acerca su tarjeta RFID al lector → 2) Aparece su nombre en la barra verde de arriba → 3) Selecciona un libro disponible → 4) Haz clic en <em>Prestar libro seleccionado</em>.\n      </div>\n\n      <!-- Filtros -->\n      <div style=\"display:flex; gap:.75rem; margin-bottom:1.25rem; flex-wrap:wrap; align-items:center;\">\n        <div class=\"field\" style=\"flex:1; min-width:200px;\">\n          <input type=\"text\" id=\"catalogo-search\" placeholder=\"🔍 Buscar título, autor, ISBN…\" oninput=\"filtrarCatalogo()\" style=\"background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:.55rem .75rem; color:var(--ink); font-family:var(--font-mono); font-size:.82rem; outline:none; width:100%;\">\n        </div>\n        <select id=\"catalogo-genero\" onchange=\"filtrarCatalogo()\" style=\"background:var(--bg3); border:1px solid var(--border); border-radius:var(--radius); padding:.55rem .75rem; color:var(--ink); font-family:var(--font-mono); font-size:.8rem; outline:none;\">\n          <option value=\"\">Todos los géneros</option>\n        </select>\n        <label style=\"font-size:.75rem; color:var(--ink3); display:flex; align-items:center; gap:.35rem; cursor:pointer;\">\n          <input type=\"checkbox\" id=\"solo-disponibles\" onchange=\"filtrarCatalogo()\" checked> Solo disponibles\n        </label>\n      </div>\n\n      <div class=\"catalogo-grid\" id=\"catalogo-grid\">\n        <div class=\"empty\" style=\"grid-column:1/-1\"><big>📚</big>Cargando catálogo…</div>\n      </div>\n    </div>\n\n    <!-- ══════════ PRÉSTAMOS ACTIVOS ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-prestamos\">\n      <div class=\"section-header\">\n        <h2 class=\"section-title\">Préstamos activos</h2>\n        <button class=\"btn btn-ghost\" onclick=\"loadStats()\">↻ Actualizar</button>\n      </div>\n      <div class=\"card\">\n        <div class=\"table-wrap\">\n          <table>\n            <thead><tr><th>#</th><th>Usuario</th><th>Libro</th><th>Autor</th><th>F. Préstamo</th><th>F. Devolución</th><th>Estado</th><th>Acción</th></tr></thead>\n            <tbody id=\"prestamos-tbody\"><tr><td colspan=\"8\" class=\"empty\"><big>📂</big>Sin datos</td></tr></tbody>\n          </table>\n        </div>\n      </div>\n    </div>\n\n    <!-- ══════════ EVENTOS EN VIVO ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-eventos\">\n      <div class=\"section-header\">\n        <h2 class=\"section-title\">Feed de eventos MQTT</h2>\n        <button class=\"btn btn-ghost btn-red\" onclick=\"clearFeed()\">🗑 Limpiar</button>\n      </div>\n      <p style=\"font-size:.75rem; color:var(--ink3); margin-bottom:1rem;\">\n        Suscrito a <code style=\"color:var(--gold)\">biblioteca/ui/eventos</code> — eventos en tiempo real.\n      </p>\n      <div class=\"event-feed\" id=\"event-feed\">\n        <div class=\"empty\"><big>📡</big>Esperando eventos MQTT…</div>\n      </div>\n    </div>\n\n    <!-- ══════════ DEUDORES ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-deudores\">\n      <div class=\"section-header\">\n        <h2 class=\"section-title\">Deudores — Préstamos vencidos</h2>\n        <button class=\"btn btn-ghost\" onclick=\"loadDeudores()\">↻ Actualizar</button>\n      </div>\n      <p style=\"font-size:.75rem; color:var(--ink3); margin-bottom:1rem;\">\n        Usuarios con préstamos fuera de fecha. El botón <strong style=\"color:var(--red)\">Banear</strong> suspende el acceso del usuario y genera un correo personalizado con Gemini AI.\n      </p>\n      <div style=\"background:rgba(224,155,58,.08); border:1px solid rgba(224,155,58,.2); border-radius:var(--radius); padding:.75rem 1rem; margin-bottom:1.5rem; font-size:.75rem; color:var(--amber);\">\n        ⚠️ Configura tu <strong>GEMINI_API_KEY</strong> en Settings → Environment Variables de Node-RED para activar la generación de correos.\n      </div>\n      <div class=\"card\">\n        <div class=\"table-wrap\">\n          <table>\n            <thead><tr><th>Nombre</th><th>Email</th><th>Tipo</th><th>Libros vencidos</th><th>Títulos</th><th>Vencido desde</th><th>Acción</th></tr></thead>\n            <tbody id=\"deudores-tbody\"><tr><td colspan=\"7\" class=\"empty\"><big>✅</big>Sin deudores activos</td></tr></tbody>\n          </table>\n        </div>\n      </div>\n    </div>\n\n    <!-- ══════════ REGISTRAR USUARIO ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-registrar-usuario\">\n      <div class=\"section-header\"><h2 class=\"section-title\">Registrar nuevo usuario</h2></div>\n      <div class=\"grid-2\">\n        <div class=\"card\">\n          <div class=\"card-title\">Datos personales</div>\n          <div class=\"form-grid\">\n            <div class=\"field\"><label>Nombre</label><input type=\"text\" id=\"u-nombre\" placeholder=\"María\"></div>\n            <div class=\"field\"><label>Apellido</label><input type=\"text\" id=\"u-apellido\" placeholder=\"García López\"></div>\n            <div class=\"field\"><label>Email</label><input type=\"email\" id=\"u-email\" placeholder=\"maria@escuela.edu\"></div>\n            <div class=\"field\"><label>Tipo de usuario</label><select id=\"u-tipo\"><option value=\"estudiante\">Estudiante</option><option value=\"docente\">Docente</option><option value=\"administrativo\">Personal administrativo</option></select></div>\n            <div class=\"field\"><label>Máx. préstamos</label><input type=\"number\" id=\"u-maxprestamos\" value=\"3\" min=\"1\" max=\"10\"></div>\n            <div class=\"field\"><label>Vigencia (fecha)</label><input type=\"date\" id=\"u-vigencia\"></div>\n          </div>\n          <div class=\"card-title\" style=\"margin-top:.5rem\">Tag RFID</div>\n          <div class=\"form-grid\">\n            <div class=\"field\"><label>UID del tag (hex)</label><input type=\"text\" id=\"u-rfid\" placeholder=\"A1B2C3D4\" maxlength=\"16\" oninput=\"this.value=this.value.toUpperCase().replace(/[^A-F0-9]/g,'')\"></div>\n          </div>\n          <div style=\"display:flex; gap:.75rem; flex-wrap:wrap;\">\n            <button class=\"btn btn-gold\" onclick=\"registrarUsuario()\">✚ Registrar usuario</button>\n            <button class=\"btn btn-ghost\" onclick=\"limpiarFormUsuario()\">Limpiar</button>\n          </div>\n        </div>\n        <div class=\"card\">\n          <div class=\"card-title\">Cómo asignar el tag RFID</div>\n          <div style=\"font-size:.8rem; color:var(--ink2); line-height:1.9;\">\n            <p>1. Acerca el lector RFID al tag del usuario.</p>\n            <p>2. El UID aparece en el monitor serial o en el feed de eventos MQTT.</p>\n            <p>3. Cópialo en el campo <em>UID del tag</em>.</p>\n            <p>4. Haz clic en <strong style=\"color:var(--gold)\">Registrar usuario</strong>.</p>\n          </div>\n          <hr style=\"border-color:var(--border); margin:1rem 0;\">\n          <div class=\"card-title\">Vista previa del payload</div>\n          <pre id=\"u-payload-preview\" style=\"font-size:.72rem; color:var(--ink3); white-space:pre-wrap; word-break:break-all;\">—</pre>\n        </div>\n      </div>\n    </div>\n\n    <!-- ══════════ REGISTRAR LIBRO ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-registrar-libro\">\n      <div class=\"section-header\"><h2 class=\"section-title\">Registrar libro y generar QR</h2></div>\n      <div class=\"grid-2\">\n        <div class=\"card\">\n          <div class=\"card-title\">Datos del libro</div>\n          <div class=\"form-grid\">\n            <div class=\"field\" style=\"grid-column:1/-1\"><label>Título</label><input type=\"text\" id=\"l-titulo\" placeholder=\"Cien Años de Soledad\" oninput=\"previewQR()\"></div>\n            <div class=\"field\"><label>Autor</label><input type=\"text\" id=\"l-autor\" placeholder=\"Gabriel García Márquez\"></div>\n            <div class=\"field\"><label>ISBN</label><input type=\"text\" id=\"l-isbn\" placeholder=\"978-0-06-088328-7\" oninput=\"previewQR()\"></div>\n            <div class=\"field\"><label>Editorial</label><input type=\"text\" id=\"l-editorial\" placeholder=\"Harper Collins\"></div>\n            <div class=\"field\"><label>Año</label><input type=\"number\" id=\"l-anio\" placeholder=\"2004\"></div>\n            <div class=\"field\"><label>Número de ejemplares</label><input type=\"number\" id=\"l-ejemplares\" value=\"1\" min=\"1\" max=\"50\"></div>\n            <div class=\"field\"><label>Código QR (vacío = auto)</label><input type=\"text\" id=\"l-qr\" placeholder=\"LIB-00042\" maxlength=\"12\" oninput=\"previewQR()\"></div>\n          </div>\n          <div style=\"display:flex; gap:.75rem; flex-wrap:wrap;\">\n            <button class=\"btn btn-gold\" onclick=\"registrarLibro()\">✚ Registrar libro</button>\n            <button class=\"btn btn-ghost\" onclick=\"imprimirQR()\">🖨 Imprimir QR</button>\n            <button class=\"btn btn-ghost\" onclick=\"limpiarFormLibro()\">Limpiar</button>\n          </div>\n        </div>\n        <div class=\"card\" style=\"display:flex; flex-direction:column; align-items:center; gap:1rem;\">\n          <div class=\"card-title\" style=\"align-self:flex-start; width:100%\">Vista previa del QR</div>\n          <div id=\"qr-preview-box\"><div style=\"width:200px;height:200px;display:grid;place-items:center;color:#aaa;font-size:.75rem;\">Llena el formulario →</div></div>\n          <div id=\"qr-codigo-label\" style=\"font-family:var(--font-mono);font-size:.8rem;color:var(--gold);letter-spacing:.1em;\">—</div>\n        </div>\n      </div>\n    </div>\n\n    <!-- ══════════ AUDITORÍA ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-auditoria\">\n      <div class=\"section-header\">\n        <h2 class=\"section-title\">Historial de auditoría</h2>\n        <div style=\"display:flex; gap:.75rem;\">\n          <button class=\"btn btn-ghost\" onclick=\"loadAuditoria()\">↻ Actualizar</button>\n          <button class=\"btn btn-ghost\" style=\"font-size:.7rem;\" onclick=\"exportarAuditoria()\">⬇ CSV</button>\n        </div>\n      </div>\n      <div class=\"card\">\n        <div class=\"table-wrap\">\n          <table>\n            <thead><tr><th>Fecha/Hora</th><th>Tipo</th><th>Origen</th><th>Usuario</th><th>Mensaje</th></tr></thead>\n            <tbody id=\"auditoria-tbody\"><tr><td colspan=\"5\" class=\"empty\"><big>🗂</big>Cargando…</td></tr></tbody>\n          </table>\n        </div>\n      </div>\n    </div>\n\n    <!-- ══════════ CONFIGURACIÓN ══════════ -->\n    <div class=\"tab-panel\" id=\"tab-config\">\n      <div class=\"section-header\"><h2 class=\"section-title\">Configuración de conexiones</h2></div>\n      <p style=\"font-size:.75rem; color:var(--ink3); margin-bottom:1.5rem;\">\n        Estos valores se guardan en <code style=\"color:var(--gold)\">localStorage</code>. No se envían al servidor.\n      </p>\n      <div class=\"grid-2\">\n        <div class=\"card\">\n          <div class=\"card-title\">API Node-RED</div>\n          <div class=\"form-grid\" style=\"grid-template-columns:1fr;\">\n            <div class=\"field\"><label>Base URL</label><input type=\"url\" id=\"cfg-api-url\" placeholder=\"http://localhost:1880\"></div>\n            <div class=\"field\"><label>API Key (x-api-key)</label><input type=\"password\" id=\"cfg-api-key\" placeholder=\"tu-api-key-secreta\"></div>\n          </div>\n        </div>\n        <div class=\"card\">\n          <div class=\"card-title\">Broker MQTT (WebSocket)</div>\n          <div class=\"form-grid\" style=\"grid-template-columns:1fr 1fr;\">\n            <div class=\"field\" style=\"grid-column:1/-1\"><label>Host</label><input type=\"text\" id=\"cfg-mqtt-host\" placeholder=\"localhost\"></div>\n            <div class=\"field\"><label>Puerto WS</label><input type=\"number\" id=\"cfg-mqtt-port\" placeholder=\"9001\"></div>\n            <div class=\"field\"><label>Client ID</label><input type=\"text\" id=\"cfg-mqtt-client\" placeholder=\"dashboard-ui\"></div>\n          </div>\n        </div>\n      </div>\n      <div style=\"display:flex; gap:.75rem; margin-top:.25rem; flex-wrap:wrap;\">\n        <button class=\"btn btn-gold\" onclick=\"guardarConfig()\">💾 Guardar y reconectar</button>\n        <button class=\"btn btn-ghost\" onclick=\"resetConfig()\">Restablecer defaults</button>\n      </div>\n    </div>\n\n  </main>\n</div>\n\n<script>\n/* ── CONFIG ── */\nconst DEFAULTS = {\n  apiUrl: 'http://localhost:1880', apiKey: '',\n  mqttHost: 'localhost', mqttPort: 9001,\n  mqttClient: 'dashboard-' + Math.random().toString(36).slice(2,7)\n};\nlet CFG = loadConfig();\nlet mqttClient = null;\nlet catalogoData = [];\nlet libroSeleccionado = null;\nlet rfidTimer = null;\nlet rfidSecondsLeft = 0;\n\nfunction loadConfig() {\n  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem('bibliosys_cfg') || '{}') }; }\n  catch { return { ...DEFAULTS }; }\n}\nfunction saveConfig(o) { localStorage.setItem('bibliosys_cfg', JSON.stringify(o)); }\n\nfunction guardarConfig() {\n  CFG.apiUrl   = document.getElementById('cfg-api-url').value   || DEFAULTS.apiUrl;\n  CFG.apiKey   = document.getElementById('cfg-api-key').value;\n  CFG.mqttHost = document.getElementById('cfg-mqtt-host').value || DEFAULTS.mqttHost;\n  CFG.mqttPort = parseInt(document.getElementById('cfg-mqtt-port').value) || DEFAULTS.mqttPort;\n  CFG.mqttClient = document.getElementById('cfg-mqtt-client').value || DEFAULTS.mqttClient;\n  saveConfig(CFG); toast('Configuración guardada', 'ok'); initMQTT(); loadStats();\n}\nfunction resetConfig() { CFG = { ...DEFAULTS }; saveConfig(CFG); fillConfigForm(); toast('Configuración restablecida', 'warn'); }\nfunction fillConfigForm() {\n  document.getElementById('cfg-api-url').value    = CFG.apiUrl;\n  document.getElementById('cfg-api-key').value    = CFG.apiKey;\n  document.getElementById('cfg-mqtt-host').value  = CFG.mqttHost;\n  document.getElementById('cfg-mqtt-port').value  = CFG.mqttPort;\n  document.getElementById('cfg-mqtt-client').value = CFG.mqttClient;\n}\n\n/* ── TABS ── */\ndocument.getElementById('main-nav').addEventListener('click', e => {\n  const btn = e.target.closest('button[data-tab]');\n  if (!btn) return;\n  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));\n  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));\n  btn.classList.add('active');\n  document.getElementById(btn.dataset.tab).classList.add('active');\n  if (btn.dataset.tab === 'tab-auditoria') loadAuditoria();\n  if (btn.dataset.tab === 'tab-deudores')  loadDeudores();\n  if (btn.dataset.tab === 'tab-catalogo')  loadCatalogo();\n});\n\n/* ── RELOJ ── */\nfunction updateClock() {\n  const now = new Date();\n  document.getElementById('clock').textContent =\n    now.toLocaleDateString('es-MX', { weekday:'short', day:'2-digit', month:'short' }) + ' ' +\n    now.toLocaleTimeString('es-MX');\n}\nsetInterval(updateClock, 1000); updateClock();\n\n/* ── TOAST ── */\nfunction toast(msg, tipo = 'ok', dur = 3500) {\n  const el = document.createElement('div');\n  el.className = `toast toast-${tipo}`;\n  el.textContent = msg;\n  document.getElementById('toast-container').appendChild(el);\n  setTimeout(() => el.remove(), dur);\n}\n\n/* ── API ── */\nasync function apiCall(path, method = 'GET', body = null) {\n  const opts = { method, headers: { 'Content-Type': 'application/json', 'x-api-key': CFG.apiKey } };\n  if (body) opts.body = JSON.stringify(body);\n  const res = await fetch(CFG.apiUrl + path, opts);\n  const data = await res.json();\n  return { ok: res.ok, status: res.status, data };\n}\n\n/* ── RFID BANNER ── */\nfunction activarRfidBanner(usuario) {\n  const banner = document.getElementById('rfid-banner');\n  document.getElementById('rfid-nombre').textContent =\n    (usuario.nombre || '—') + (usuario.cupo !== undefined ? '' : '');\n  document.getElementById('rfid-cupo').textContent =\n    usuario.cupo !== undefined ? `Cupo disponible: ${usuario.cupo}` : '';\n  banner.classList.add('visible');\n\n  if (rfidTimer) clearInterval(rfidTimer);\n  rfidSecondsLeft = 300;\n\n  rfidTimer = setInterval(() => {\n    rfidSecondsLeft--;\n    const m = Math.floor(rfidSecondsLeft / 60);\n    const s = String(rfidSecondsLeft % 60).padStart(2, '0');\n    document.getElementById('rfid-countdown').textContent = `${m}:${s}`;\n    if (rfidSecondsLeft <= 0) {\n      clearInterval(rfidTimer);\n      banner.classList.remove('visible');\n      toast('Sesión RFID expirada', 'warn');\n      libroSeleccionado = null;\n      actualizarBotonPrestar();\n    }\n  }, 1000);\n}\n\n/* ── ESTADÍSTICAS ── */\nasync function loadStats() {\n  setApiStatus('connecting');\n  try {\n    const { ok, data } = await apiCall('/api/stats');\n    if (!ok || !data.ok) throw new Error(data.error || 'Error API');\n    const stats = data.estadisticas || {};\n    const activos = data.prestamos_activos || [];\n    setKpi('kpi-libros',      stats.total_libros           ?? '—');\n    setKpi('kpi-prestamos',   stats.prestamos_activos      ?? activos.length);\n    setKpi('kpi-vencidos',    stats.prestamos_vencidos     ?? '—');\n    setKpi('kpi-usuarios',    stats.total_usuarios         ?? '—');\n    setKpi('kpi-disponibles', stats.ejemplares_disponibles ?? '—');\n    setKpi('kpi-ts', new Date().toLocaleTimeString('es-MX'));\n    renderPrestamosTabla(activos, 'dash-prestamos-tbody', true);\n    renderPrestamosTabla(activos, 'prestamos-tbody', false);\n    setApiStatus('online');\n  } catch(err) {\n    setApiStatus('offline');\n    toast(`Error al cargar stats: ${err.message}`, 'err');\n  }\n}\n\nfunction setKpi(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }\n\nfunction renderPrestamosTabla(rows, tbodyId, mini) {\n  const tbody = document.getElementById(tbodyId);\n  if (!rows || !rows.length) {\n    tbody.innerHTML = `<tr><td colspan=\"${mini?5:8}\" class=\"empty\"><big>📚</big>Sin préstamos activos</td></tr>`;\n    return;\n  }\n  tbody.innerHTML = rows.map(r => {\n    const vencido = r.vencido == 1 || r.vencido === true;\n    const badge = vencido\n      ? '<span class=\"badge badge-red\">Vencido</span>'\n      : '<span class=\"badge badge-green\">Al corriente</span>';\n    if (mini) {\n      return `<tr>\n        <td>${esc(r.usuario_nombre || r.usuario)}</td>\n        <td>${esc(r.titulo)}</td>\n        <td>${fmtDate(r.fecha_prestamo)}</td>\n        <td>${fmtDate(r.fecha_devolucion_esperada)}</td>\n        <td>${badge}</td>\n      </tr>`;\n    } else {\n      const btnDev = `<button class=\"btn btn-ghost\" style=\"padding:.25rem .6rem;font-size:.7rem;\" onclick=\"devolverPrestamo(${r.prestamo_id})\">↩ Devolver</button>`;\n      return `<tr>\n        <td>${r.prestamo_id || '—'}</td>\n        <td>${esc(r.usuario_nombre || r.usuario)}</td>\n        <td>${esc(r.titulo)}</td>\n        <td>${esc(r.autor || '—')}</td>\n        <td>${fmtDate(r.fecha_prestamo)}</td>\n        <td>${fmtDate(r.fecha_devolucion_esperada)}</td>\n        <td>${badge}</td>\n        <td>${btnDev}</td>\n      </tr>`;\n    }\n  }).join('');\n}\n\nasync function devolverPrestamo(prestamo_id) {\n  const rfid = prompt('Ingresa el RFID del usuario para confirmar la devolución:');\n  if (!rfid) return;\n  try {\n    const { ok, data } = await apiCall('/api/rfid/scan', 'POST', {\n      tipo: 'devolucion',\n      rfid_tag: rfid.trim().toUpperCase(),\n      prestamo_id: prestamo_id\n    });\n    if (ok && data.ok) {\n      toast(data.mensaje || 'Devolución registrada', 'ok');\n      loadStats();\n    } else {\n      toast(data.error || data.mensaje || 'Error en devolución', 'err');\n    }\n  } catch(e) { toast('Error de red: ' + e.message, 'err'); }\n}\n\n/* ── CATÁLOGO ── */\nasync function loadCatalogo() {\n  const grid = document.getElementById('catalogo-grid');\n  grid.innerHTML = '<div class=\"empty\" style=\"grid-column:1/-1\"><big>⏳</big>Cargando…</div>';\n  try {\n    const { ok, data } = await apiCall('/api/catalogo');\n    if (!ok || !data.ok) throw new Error('Error al cargar catálogo');\n    catalogoData = data.libros || [];\n\n    // Poblar géneros\n    const generos = [...new Set(catalogoData.map(l => l.genero).filter(Boolean))].sort();\n    const sel = document.getElementById('catalogo-genero');\n    const valActual = sel.value;\n    sel.innerHTML = '<option value=\"\">Todos los géneros</option>' +\n      generos.map(g => `<option value=\"${esc(g)}\"${g === valActual ? ' selected' : ''}>${esc(g)}</option>`).join('');\n\n    filtrarCatalogo();\n  } catch(e) {\n    grid.innerHTML = `<div class=\"empty\" style=\"grid-column:1/-1\"><big>⚠️</big>${e.message}</div>`;\n  }\n}\n\nfunction filtrarCatalogo() {\n  const q = document.getElementById('catalogo-search').value.toLowerCase();\n  const genero = document.getElementById('catalogo-genero').value;\n  const soloDisp = document.getElementById('solo-disponibles').checked;\n\n  const filtrados = catalogoData.filter(l => {\n    if (soloDisp && l.disponibles < 1) return false;\n    if (genero && l.genero !== genero) return false;\n    if (q && !`${l.titulo} ${l.autor} ${l.isbn || ''} ${l.editorial || ''}`.toLowerCase().includes(q)) return false;\n    return true;\n  });\n\n  renderCatalogo(filtrados);\n}\n\nfunction renderCatalogo(libros) {\n  const grid = document.getElementById('catalogo-grid');\n  if (!libros.length) {\n    grid.innerHTML = '<div class=\"empty\" style=\"grid-column:1/-1\"><big>🔍</big>Sin resultados</div>';\n    return;\n  }\n  grid.innerHTML = libros.map(l => {\n    const disp = l.disponibles || 0;\n    const sin = disp < 1;\n    const sel = libroSeleccionado && libroSeleccionado.id === l.id;\n    const dispClass = sin ? 'badge-red' : (disp <= 1 ? 'badge-amber' : 'badge-green');\n    return `<div class=\"libro-card ${sin ? 'sin-stock' : ''} ${sel ? 'selected' : ''}\"\n                 onclick=\"${sin ? '' : `seleccionarLibro(${l.id})`}\"\n                 data-libro-id=\"${l.id}\">\n      <span class=\"badge ${dispClass} disponibles-pill\">${disp} disp.</span>\n      <div class=\"libro-titulo\">${esc(l.titulo)}</div>\n      <div class=\"libro-autor\">${esc(l.autor)}</div>\n      <div class=\"libro-meta\">\n        ${l.genero ? `<span class=\"badge badge-blue\">${esc(l.genero)}</span>` : ''}\n        ${l.anio_publicacion ? `<span style=\"font-size:.68rem;color:var(--ink3)\">${l.anio_publicacion}</span>` : ''}\n        ${l.ubicacion ? `<span style=\"font-size:.68rem;color:var(--ink3)\">📍 ${esc(l.ubicacion)}</span>` : ''}\n      </div>\n    </div>`;\n  }).join('');\n}\n\nfunction seleccionarLibro(id) {\n  libroSeleccionado = catalogoData.find(l => l.id === id) || null;\n  document.querySelectorAll('.libro-card').forEach(c => {\n    c.classList.toggle('selected', parseInt(c.dataset.libroId) === id);\n  });\n  actualizarBotonPrestar();\n  if (libroSeleccionado) {\n    toast(`\"${libroSeleccionado.titulo}\" seleccionado`, 'ok', 2000);\n  }\n}\n\nfunction actualizarBotonPrestar() {\n  const btn = document.getElementById('btn-prestar');\n  const banner = document.getElementById('rfid-banner');\n  const rfidActivo = banner.classList.contains('visible');\n  btn.disabled = !(libroSeleccionado && rfidActivo);\n  btn.textContent = libroSeleccionado\n    ? `📖 Prestar \"${libroSeleccionado.titulo.substring(0,30)}${libroSeleccionado.titulo.length > 30 ? '…' : ''}\"`\n    : '📖 Prestar libro seleccionado';\n}\n\nasync function ejecutarPrestamo(confirmado = false) {\n  if (!libroSeleccionado) { toast('Selecciona un libro primero', 'warn'); return; }\n  const banner = document.getElementById('rfid-banner');\n  if (!banner.classList.contains('visible')) {\n    toast('No hay sesión RFID activa.', 'err'); return;\n  }\n\n  const btn = document.getElementById('btn-prestar');\n  btn.disabled = true;\n  btn.textContent = '⏳ Procesando…';\n\n  try {\n    // Le mandamos el flag \"confirmado\" al servidor\n    const { ok, data } = await apiCall('/api/prestamo/web', 'POST', { \n        libro_id: libroSeleccionado.id, \n        confirmado: confirmado \n    });\n    \n    // Si la DB detecta que ya tiene el libro, nos tira un 409 especial\n    if (!ok && data.error === 'CONFIRMACION_REQUERIDA') {\n        if (confirm(data.mensaje)) {\n            ejecutarPrestamo(true); // Se vuelve a llamar a sí misma, pero ahora con true\n        } else {\n            btn.disabled = false;\n            actualizarBotonPrestar();\n        }\n        return; \n    }\n\n    if (ok && data.ok) {\n      toast(data.mensaje || 'Préstamo registrado', 'ok');\n      appendEvent({ tipo: 'prestamo_exitoso', mensaje: data.mensaje, datos: data.prestamo });\n      \n      // SOLUCIÓN 1: Restar el cupo visualmente al instante\n      const cupoSpan = document.getElementById('rfid-cupo');\n      const match = cupoSpan.textContent.match(/\\d+/);\n      if (match) cupoSpan.textContent = `Cupo disponible: ${parseInt(match[0]) - 1}`;\n      \n      libroSeleccionado = null;\n      loadCatalogo();\n      loadStats();\n    } else {\n      toast(data.mensaje || data.error || 'Error al procesar préstamo', 'err');\n    }\n  } catch(e) { toast('Error de red: ' + e.message, 'err'); }\n\n  btn.disabled = false;\n  actualizarBotonPrestar();\n}\n\n/* ── AUDITORÍA ── */\nasync function loadAuditoria() {\n  const tbody = document.getElementById('auditoria-tbody');\n  tbody.innerHTML = '<tr><td colspan=\"5\" class=\"empty\"><big>⏳</big>Cargando…</td></tr>';\n  try {\n    const { ok, data } = await apiCall('/api/auditoria');\n    if (!ok || !data.ok) throw new Error('Error cargando auditoría');\n    const rows = data.registros || [];\n    if (!rows.length) {\n      tbody.innerHTML = '<tr><td colspan=\"5\" class=\"empty\"><big>🗂</big>Sin registros</td></tr>';\n      return;\n    }\n    const tipoBadge = {\n      prestamo:   'badge-green', devolucion: 'badge-blue',\n      error:      'badge-red',   backup:     'badge-gold',\n      baneo:      'badge-red',   login:      'badge-amber'\n    };\n    tbody.innerHTML = rows.map(r =>\n      `<tr>\n        <td style=\"white-space:nowrap\">${esc(r.timestamp)}</td>\n        <td><span class=\"badge ${tipoBadge[r.tipo] || 'badge-amber'}\">${esc(r.tipo)}</span></td>\n        <td><span class=\"badge badge-gold\" style=\"font-size:.6rem\">${esc(r.origen)}</span></td>\n        <td>${esc(r.usuario)}</td>\n        <td>${esc(r.mensaje)}</td>\n      </tr>`\n    ).join('');\n  } catch(e) {\n    tbody.innerHTML = `<tr><td colspan=\"5\" class=\"empty\"><big>⚠️</big>${e.message}</td></tr>`;\n    toast(e.message, 'err');\n  }\n}\n\nfunction exportarAuditoria() {\n  const tbody = document.getElementById('auditoria-tbody');\n  const rows = Array.from(tbody.querySelectorAll('tr')).map(tr =>\n    Array.from(tr.querySelectorAll('td')).map(td => `\"${td.textContent.replace(/\"/g,'\"\"')}\"`).join(',')\n  ).filter(Boolean);\n  if (!rows.length) { toast('Sin datos para exportar', 'warn'); return; }\n  const csv = 'Fecha/Hora,Tipo,Origen,Usuario,Mensaje\\n' + rows.join('\\n');\n  const a = document.createElement('a');\n  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);\n  a.download = `auditoria_${new Date().toISOString().substring(0,10)}.csv`;\n  a.click();\n}\n\n/* ── DEUDORES ── */\nasync function loadDeudores() {\n  const tbody = document.getElementById('deudores-tbody');\n  tbody.innerHTML = '<tr><td colspan=\"7\" class=\"empty\"><big>⏳</big>Cargando…</td></tr>';\n  try {\n    const { ok, data } = await apiCall('/api/deudores');\n    if (!ok || !data.ok) throw new Error('Error cargando deudores');\n    const rows = data.deudores || [];\n    if (!rows.length) {\n      tbody.innerHTML = '<tr><td colspan=\"7\" class=\"empty\"><big>✅</big>¡Sin deudores! Todos al corriente.</td></tr>';\n      return;\n    }\n    tbody.innerHTML = rows.map(d => `<tr>\n      <td>${esc(d.nombre + ' ' + d.apellido)}</td>\n      <td><a href=\"mailto:${esc(d.email)}\" style=\"color:var(--blue)\">${esc(d.email)}</a></td>\n      <td><span class=\"badge badge-amber\">${esc(d.tipo_usuario)}</span></td>\n      <td><span class=\"badge badge-red\">${d.prestamos_vencidos}</span></td>\n      <td style=\"max-width:250px; white-space:normal; font-size:.72rem; color:var(--ink3)\">${esc(d.libros_pendientes || '—')}</td>\n      <td>${fmtDate(d.vencimiento_mas_antiguo)}</td>\n      <td>\n        ${d.activo === 1 \n            ? `<button class=\"btn btn-red\" style=\"padding:.3rem .65rem; font-size:.72rem;\" onclick='banearUsuario(${JSON.stringify(d)})'>🚫 Banear</button>`\n            : `<div style=\"display:flex; gap:.3rem; flex-direction:column;\">\n                 <span class=\"badge badge-red\" style=\"text-align:center; opacity:0.8;\">Baneado</span>\n                 <button class=\"btn btn-ghost\" style=\"padding:.2rem; font-size:.65rem; border-color:var(--amber); color:var(--amber);\" onclick='resolverDeuda(${JSON.stringify(d)}, \"pagar\")'>💰 Pagar (Baja)</button>\n                 <button class=\"btn btn-ghost\" style=\"padding:.2rem; font-size:.65rem; border-color:var(--green); color:var(--green);\" onclick='resolverDeuda(${JSON.stringify(d)}, \"devolver\")'>↩️ Devolver</button>\n               </div>`\n        }\n      </td>\n    </tr>`).join('');\n  } catch(e) {\n    tbody.innerHTML = `<tr><td colspan=\"7\" class=\"empty\"><big>⚠️</big>${e.message}</td></tr>`;\n  }\n}\n\nasync function resolverDeuda(deudor, accion) {\n  const msjs = {\n    pagar: `¿Marcar los libros de ${deudor.nombre} como PAGADOS/PERDIDOS y reactivar su cuenta?\\nLos ejemplares se darán de baja del sistema permanentemente.`,\n    devolver: `¿Marcar los libros de ${deudor.nombre} como DEVUELTOS y reactivar su cuenta?\\nLos ejemplares volverán a estar disponibles en el catálogo.`\n  };\n  \n  if (!confirm(msjs[accion])) return;\n\n  try {\n    const { ok, data } = await apiCall('/api/desbanear', 'POST', { usuario_id: deudor.usuario_id, accion: accion });\n    if (ok && data.ok) {\n      toast(`Cuenta de ${deudor.nombre} reactivada correctamente.`, 'ok');\n      loadDeudores();\n      loadStats();\n    } else {\n      toast(data.error || 'Error al procesar la resolución', 'err');\n    }\n  } catch(e) { \n    toast('Error de red: ' + e.message, 'err'); \n  }\n}\n\nasync function banearUsuario(deudor) {\n  if (!confirm(`¿Banear a ${deudor.nombre} ${deudor.apellido}?\\nEsto suspenderá su acceso y generará un correo con Gemini.`)) return;\n\n  toast('Generando correo con Gemini AI…', 'warn', 8000);\n\n  try {\n    const { ok, data } = await apiCall('/api/banear', 'POST', deudor);\n    if (ok && data.ok) {\n      mostrarModalCorreo(data.email_generado, deudor);\n      toast(`${deudor.nombre} baneado. Copia el correo del modal.`, 'ok', 6000);\n      loadDeudores();\n    } else {\n      toast(data.error || 'Error al banear', 'err');\n    }\n  } catch(e) { toast('Error de red: ' + e.message, 'err'); }\n}\n\nfunction mostrarModalCorreo(texto, deudor) {\n  document.getElementById('modal-email-content').textContent = texto || '[Sin respuesta de Gemini]';\n  document.getElementById('modal-overlay').classList.add('visible');\n}\nfunction cerrarModal() { document.getElementById('modal-overlay').classList.remove('visible'); }\nfunction copiarCorreo() {\n  const texto = document.getElementById('modal-email-content').textContent;\n  navigator.clipboard.writeText(texto).then(() => toast('Correo copiado al portapapeles', 'ok'));\n}\n\n/* ── REGISTRAR USUARIO ── */\nfunction livePreviewUsuario() {\n  const obj = { nombre: v('u-nombre'), apellido: v('u-apellido'), email: v('u-email'),\n    tipo_usuario: v('u-tipo'), rfid_tag: v('u-rfid'),\n    max_prestamos: parseInt(v('u-maxprestamos')) || 3, fecha_vigencia: v('u-vigencia') || null };\n  document.getElementById('u-payload-preview').textContent = JSON.stringify(obj, null, 2);\n}\n['u-nombre','u-apellido','u-email','u-tipo','u-rfid','u-maxprestamos','u-vigencia']\n  .forEach(id => document.getElementById(id)?.addEventListener('input', livePreviewUsuario));\n\nasync function registrarUsuario() {\n  const nombre = v('u-nombre'), apellido = v('u-apellido'), rfid_tag = v('u-rfid');\n  if (!nombre || !apellido || !rfid_tag) { toast('Nombre, apellido y RFID son obligatorios', 'err'); return; }\n  if (!/^[A-F0-9]{4,16}$/.test(rfid_tag)) { toast('RFID inválido (hex, 4–16 dígitos)', 'err'); return; }\n  const payload = { nombre, apellido, email: v('u-email'), rfid_tag,\n    tipo_usuario: v('u-tipo'), max_prestamos: parseInt(v('u-maxprestamos')) || 3,\n    fecha_vigencia: v('u-vigencia') || null };\n  try {\n    const { ok, data } = await apiCall('/api/usuarios', 'POST', payload);\n    if (ok && data.ok) { toast(`Usuario ${nombre} ${apellido} registrado`, 'ok'); limpiarFormUsuario(); }\n    else { toast(data.error || 'Error al registrar', 'err'); }\n  } catch(e) { toast('Error de red: ' + e.message, 'err'); }\n}\nfunction limpiarFormUsuario() {\n  ['u-nombre','u-apellido','u-email','u-rfid','u-vigencia'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });\n  document.getElementById('u-tipo').value = 'estudiante';\n  document.getElementById('u-maxprestamos').value = '3';\n  document.getElementById('u-payload-preview').textContent = '—';\n}\n\n/* ── REGISTRAR LIBRO ── */\nlet qrInstance = null;\nfunction getQRCodigo() {\n  const c = v('l-qr'); if (c) return c.trim();\n  const isbn = v('l-isbn').replace(/[-\\s]/g,''); if (isbn) return 'LIB-' + isbn.slice(-5).padStart(5,'0');\n  const t = v('l-titulo'); if (t) return 'LIB-' + Math.abs(hashCode(t)).toString().slice(0,5).padStart(5,'0');\n  return '';\n}\nfunction hashCode(str) { let h=0; for(let i=0;i<str.length;i++) h=Math.imul(31,h)+str.charCodeAt(i)|0; return h; }\n\nfunction previewQR() {\n  const codigo = getQRCodigo();\n  const box = document.getElementById('qr-preview-box');\n  document.getElementById('qr-codigo-label').textContent = codigo || '—';\n  if (!codigo) { box.innerHTML = `<div style=\"width:200px;height:200px;display:grid;place-items:center;color:#aaa;font-size:.75rem;\">Llena el formulario →</div>`; return; }\n  box.innerHTML = '';\n  qrInstance = new QRCode(box, { text: codigo, width: 200, height: 200, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.H });\n}\n\nasync function cerrarSesionWeb() {\n    try { await apiCall('/api/cerrar-sesion', 'POST'); } catch (e) {} \n    \n    document.getElementById('rfid-banner').classList.remove('visible');\n    clearInterval(rfidTimer);\n    libroSeleccionado = null;\n    actualizarBotonPrestar();\n    toast('Sesión finalizada', 'ok');\n}\n\nfunction imprimirQR() {\n  const codigo = getQRCodigo(), titulo = v('l-titulo') || 'Sin título';\n  if (!codigo) { toast('Genera primero el QR', 'warn'); return; }\n  const canvas = document.getElementById('qr-preview-box').querySelector('canvas');\n  const imgSrc = canvas ? canvas.toDataURL() : (document.getElementById('qr-preview-box').querySelector('img')?.src || '');\n  const win = window.open('', '_blank');\n  win.document.write(`<!DOCTYPE html><html><head><title>QR-${titulo}</title><style>body{font-family:monospace;text-align:center;padding:2rem}img{display:block;margin:0 auto 1rem}@media print{button{display:none}}</style></head><body><img src=\"${imgSrc}\" width=\"200\"><h2>${titulo}</h2><p>${codigo}</p><p>${v('l-autor')}</p><br><button onclick=\"window.print()\">🖨 Imprimir</button></body></html>`);\n  win.document.close();\n}\n\nasync function registrarLibro() {\n  const titulo = v('l-titulo'), qr_codigo = getQRCodigo();\n  if (!titulo) { toast('El título es obligatorio', 'err'); return; }\n  if (!qr_codigo) { toast('No se pudo generar el código QR', 'err'); return; }\n  const payload = { titulo, autor: v('l-autor'), isbn: v('l-isbn'), editorial: v('l-editorial'),\n    anio: parseInt(v('l-anio')) || null, ejemplares: parseInt(v('l-ejemplares')) || 1, qr_codigo };\n  try {\n    const { ok, data } = await apiCall('/api/libros', 'POST', payload);\n    if (ok && data.ok) { toast(`\"${titulo}\" registrado`, 'ok'); limpiarFormLibro(); loadCatalogo(); }\n    else { toast(data.error || 'Error al registrar libro', 'err'); }\n  } catch(e) { toast('Error de red: ' + e.message, 'err'); }\n}\n\nfunction limpiarFormLibro() {\n  ['l-titulo','l-autor','l-isbn','l-editorial','l-anio','l-qr'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });\n  document.getElementById('l-ejemplares').value = '1';\n  previewQR();\n}\n\n/* ── MQTT ── */\nfunction initMQTT() {\n  if (mqttClient) { try { mqttClient.disconnect(); } catch {} mqttClient = null; }\n  if (typeof Paho === 'undefined') { setMqttStatus('offline', 'Paho no disponible'); return; }\n  setMqttStatus('connecting', 'Conectando…');\n  mqttClient = new Paho.Client(CFG.mqttHost, CFG.mqttPort, '/mqtt', CFG.mqttClient);\n  mqttClient.onConnectionLost = ({ errorMessage }) => {\n    setMqttStatus('offline', 'Desconectado');\n    toast('MQTT desconectado: ' + errorMessage, 'err');\n    setTimeout(initMQTT, 5000);\n  };\n  mqttClient.onMessageArrived = (msg) => {\n    try {\n      const payload = JSON.parse(msg.payloadString);\n      appendEvent(payload);\n      // Si es un RFID confirmado, activar banner\n      if (payload.tipo === 'rfid_ok' && payload.usuario) {\n        activarRfidBanner(payload.usuario);\n        actualizarBotonPrestar();\n      }\n    } catch { appendEvent({ tipo: 'raw', mensaje: msg.payloadString }); }\n  };\n  mqttClient.connect({\n    onSuccess: () => {\n      setMqttStatus('online', 'MQTT online');\n      mqttClient.subscribe('biblioteca/ui/eventos');\n      mqttClient.subscribe('biblioteca/sistema/status');\n      toast('MQTT conectado', 'ok');\n    },\n    onFailure: ({ errorMessage }) => {\n      setMqttStatus('offline', 'Sin conexión');\n      toast('MQTT error: ' + errorMessage, 'err');\n      setTimeout(initMQTT, 7000);\n    },\n    useSSL: false, timeout: 5\n  });\n}\n\nfunction setMqttStatus(state, label) {\n  document.getElementById('mqtt-dot').className = 'status-dot ' + (state === 'online' ? 'online' : state === 'offline' ? 'offline' : '');\n  document.getElementById('mqtt-label').textContent = label;\n}\nfunction setApiStatus(state) {\n  document.getElementById('api-dot').className = 'status-dot ' + (state === 'online' ? 'online' : state === 'offline' ? 'offline' : '');\n  document.getElementById('api-label').textContent = state === 'online' ? 'API online' : state === 'offline' ? 'API sin respuesta' : 'API…';\n}\n\n/* ── FEED ── */\nconst ICONS = {\n  prestamo: { icon:'📖', cls:'prestamo' }, prestamo_exitoso: { icon:'📖', cls:'prestamo' },\n  devolucion: { icon:'↩️', cls:'devolucion' }, devolucion_exitosa: { icon:'↩️', cls:'devolucion' },\n  devolucion_tardía: { icon:'⏰', cls:'error' }, error: { icon:'✕', cls:'error' },\n  usuario_identificado: { icon:'👤', cls:'usuario' }, rfid_ok: { icon:'🏷️', cls:'usuario' },\n  rfid_desconocido: { icon:'⚠️', cls:'error' }, sistema: { icon:'⚙', cls:'sistema' },\n};\n\nfunction appendEvent(payload) {\n  const feed = document.getElementById('event-feed');\n  if (feed.querySelector('.empty')) feed.innerHTML = '';\n  const tipo  = payload.tipo || 'sistema';\n  const { icon, cls } = ICONS[tipo] || { icon:'●', cls:'sistema' };\n  const ahora = new Date().toLocaleTimeString('es-MX');\n  const titulo = payload.mensaje || payload.error || tipo;\n  const meta = payload.datos\n    ? Object.entries(payload.datos).slice(0,3).map(([k,v2]) => `${k}: ${v2}`).join(' · ')\n    : '';\n  const item = document.createElement('div');\n  item.className = 'event-item';\n  item.innerHTML = `<div class=\"event-icon ${cls}\">${icon}</div>\n    <div class=\"event-body\"><div class=\"event-title\">${esc(titulo)}</div>${meta ? `<div class=\"event-meta\">${esc(meta)}</div>` : ''}</div>\n    <div class=\"event-time\">${ahora}</div>`;\n  feed.prepend(item);\n  while (feed.children.length > 60) feed.removeChild(feed.lastChild);\n  if (['prestamo_exitoso','devolucion_exitosa','devolucion_tardía'].includes(tipo)) setTimeout(loadStats, 800);\n}\n\nfunction clearFeed() {\n  document.getElementById('event-feed').innerHTML = '<div class=\"empty\"><big>📡</big>Feed limpiado…</div>';\n}\n\n/* ── HELPERS ── */\nfunction v(id) { return (document.getElementById(id)?.value || '').trim(); }\nfunction esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }\nfunction fmtDate(s) {\n  if (!s) return '—';\n  try { return new Date(s).toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' }); }\n  catch { return s; }\n}\n\n/* ── INIT ── */\nfillConfigForm();\ninitMQTT();\nloadStats();\nsetInterval(loadStats, 30000);\n</script>\n</body>\n</html>\n",
+        "output": "str",
+        "x": 350,
+        "y": 1080,
+        "wires": [
+            [
+                "61ec1a104b58f8b2"
+            ]
+        ]
+    },
+    {
+        "id": "61ec1a104b58f8b2",
+        "type": "http response",
+        "z": "3b6fce683d31f02e",
+        "name": "HTTP 200",
+        "statusCode": "200",
+        "headers": {
+            "Content-Type": "text/html"
+        },
+        "x": 530,
+        "y": 1080,
+        "wires": []
+    },
+    {
+        "id": "3d8350a7d110b858",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/desbanear",
+        "url": "/api/desbanear",
+        "method": "post",
+        "upload": false,
+        "skipBodyParsing": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 840,
+        "wires": [
+            [
+                "cb1cc186aba7819b"
+            ]
+        ]
+    },
+    {
+        "id": "cb1cc186aba7819b",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Preparar desbaneo",
+        "func": "const d = (typeof msg.payload === 'string') ? JSON.parse(msg.payload) : msg.payload;\n\nif (!d || !d.usuario_id || !d.accion) {\n    msg.payload = { ok: false, error: 'Faltan datos (usuario_id o accion)' };\n    msg.statusCode = 400;\n    return msg;\n}\n\nlet queryEjemplares = \"\";\nlet queryPrestamos = \"\";\nlet mensajeLog = \"\";\n\n// Lógica de acuerdo a tu esquema SQL (CHECK constraints)\nif (d.accion === 'pagar') {\n    // Pagar = Libros perdidos, se dan de baja.\n    queryEjemplares = `UPDATE ejemplares SET estado = 'baja' WHERE id IN (SELECT ejemplar_id FROM prestamos WHERE usuario_id = ${d.usuario_id} AND estado = 'activo');`;\n    queryPrestamos = `UPDATE prestamos SET estado = 'perdido', fecha_devolucion_real = CURRENT_TIMESTAMP WHERE usuario_id = ${d.usuario_id} AND estado = 'activo';`;\n    mensajeLog = 'Deuda pagada, libros dados de baja y usuario reactivado';\n} else if (d.accion === 'devolver') {\n    // Devolver = Libros regresan a circulación.\n    queryEjemplares = `UPDATE ejemplares SET estado = 'disponible' WHERE id IN (SELECT ejemplar_id FROM prestamos WHERE usuario_id = ${d.usuario_id} AND estado = 'activo');`;\n    queryPrestamos = `UPDATE prestamos SET estado = 'devuelto', fecha_devolucion_real = CURRENT_TIMESTAMP WHERE usuario_id = ${d.usuario_id} AND estado = 'activo';`;\n    mensajeLog = 'Libros devueltos a inventario y usuario reactivado';\n} else {\n    msg.payload = { ok: false, error: 'Acción no válida' };\n    msg.statusCode = 400;\n    return msg;\n}\n\n// Ejecutamos la transacción completa\nmsg.query = `BEGIN;\n${queryEjemplares}\n${queryPrestamos}\nUPDATE usuarios SET activo = 1 WHERE id = ${d.usuario_id};\nINSERT INTO audit_log (tipo, origen, usuario_id, mensaje) \n    VALUES ('desbaneo', 'api', ${d.usuario_id}, '${mensajeLog}');\nCOMMIT;`;\n\n// Preparamos la respuesta de éxito que Node-RED enviará al cliente\nmsg.payload = {\n    ok: true,\n    mensaje: mensajeLog\n};\nmsg.statusCode = 200;\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 410,
+        "y": 840,
+        "wires": [
+            [
+                "45ce5c87a4f5f74d"
+            ]
+        ]
+    },
+    {
+        "id": "45ce5c87a4f5f74d",
+        "type": "postgresql",
+        "z": "3b6fce683d31f02e",
+        "name": "DB: Desbanear Usuario",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 650,
+        "y": 840,
+        "wires": [
+            [
+                "072397168b1c8f9d"
+            ]
+        ]
+    },
+    {
+        "id": "072397168b1c8f9d",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Respuesta baneo",
+        "func": "const d = msg.ban_usuario;\nmsg.payload = {\n    ok: true,\n    mensaje: `Usuario ${d.nombre} ${d.apellido} desbaneado correctamente`,\n    usuario: d\n};\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 950,
+        "y": 840,
+        "wires": [
+            [
+                "84133175416978f2"
+            ]
+        ]
+    },
+    {
+        "id": "43ec3e3193891415",
+        "type": "http in",
+        "z": "3b6fce683d31f02e",
+        "name": "POST /api/cerrar-sesion",
+        "url": "/api/cerrar-sesion",
+        "method": "post",
+        "upload": false,
+        "skipBodyParsing": false,
+        "swaggerDoc": "",
+        "x": 700,
+        "y": 900,
+        "wires": [
+            [
+                "577b40e752425880"
+            ]
+        ]
+    },
+    {
+        "id": "577b40e752425880",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Cerrar sesión",
+        "func": "flow.set('ultimo_rfid', null);\nflow.set('rfid_ts', null);\nflow.set('usuario_activo', null);\nmsg.payload = { ok: true };\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 900,
+        "wires": [
+            [
+                "84133175416978f2"
+            ]
+        ]
+    },
+    {
+        "id": "fead4767a22adf7f",
+        "type": "debug",
+        "z": "3b6fce683d31f02e",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1560,
+        "y": 800,
+        "wires": []
+    },
+    {
+        "id": "ad6004060ea2935c",
+        "type": "function",
+        "z": "3b6fce683d31f02e",
+        "name": "Preparar baneo",
+        "func": "const d = (typeof msg.payload === 'string') ? JSON.parse(msg.payload) : msg.payload;\n\nif (!d || !d.usuario_id) {\n    msg.payload = { ok: false, error: 'usuario_id requerido' };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nmsg.ban_data = d;\n\nconst diasDeuda = d.vencimiento_mas_antiguo\n    ? Math.ceil((Date.now() - new Date(d.vencimiento_mas_antiguo).getTime()) / 86400000)\n    : '?';\n\nconst prompt = `Eres el sistema de la Biblioteca Universitaria BiblioSys.\nRedacta un correo electrónico formal pero con un tono memorable (puede tener un poco de dramatismo cortés) notificando al usuario que su acceso ha sido SUSPENDIDO por préstamos vencidos.\n\nDatos del usuario:\n- Nombre: ${d.nombre} ${d.apellido}\n- Tipo de usuario: ${d.tipo_usuario}\n- Email: ${d.email}\n- Libros pendientes: ${d.libros_pendientes || 'no especificados'}\n- Préstamos vencidos: ${d.prestamos_vencidos}\n- Días de atraso máximo: ${diasDeuda} días\n\nEl correo debe:\n1. Saludar formalmente usando el nombre completo\n2. Mencionar específicamente los libros que no ha devuelto\n3. Indicar que el acceso está suspendido hasta regularizar\n4. Dar instrucciones claras para reactivar (devolver libros en biblioteca)\n5. Firmar como \"Sistema BiblioSys - Biblioteca Universitaria\"\n\nSolo devuelve el correo, sin explicaciones adicionales.`;\n\nconst apiKey = env.get('GEMINI_API_KEY') || '';\nmsg.url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;\nmsg.method = \"POST\";\nmsg.headers = {\n    \"Content-Type\": \"application/json\"\n};\nmsg.payload = {\n    contents: [{ parts: [{ text: prompt }] }],\n    generationConfig: { temperature: 0.8, maxOutputTokens: 600 }\n};\n\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 680,
+        "wires": [
+            [
+                "16669af63760be5d"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "16669af63760be5d",
+        "type": "http request",
+        "z": "3b6fce683d31f02e",
+        "name": "Llamar API Gemini",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 550,
+        "y": 680,
+        "wires": [
+            [
+                "01d2f76683d43dfd",
+                "fead4767a22adf7f"
+            ]
+        ]
+    },
+    {
+        "id": "357db84402578a9e",
+        "type": "e-mail",
+        "z": "3b6fce683d31f02e",
+        "server": "smtp.gmail.com",
+        "port": "465",
+        "authtype": "BASIC",
+        "saslformat": true,
+        "token": "oauth2Response.access_token",
+        "secure": true,
+        "tls": true,
+        "name": "",
+        "dname": "",
+        "x": 1050,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "a71093707907dfcb",
+        "type": "inject",
+        "z": "b7e1ba8308c39b87",
+        "name": "Cron 02:00 diario",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "0 2 * * *",
+        "once": false,
+        "onceDelay": 0,
+        "topic": "",
+        "payload": "{\"trigger\":\"cron\",\"tipo\":\"diario\"}",
+        "payloadType": "json",
+        "x": 210,
+        "y": 80,
+        "wires": [
+            [
+                "e9e659b30cc16e0a"
+            ]
+        ]
+    },
+    {
+        "id": "f05998df95d85ce8",
+        "type": "inject",
+        "z": "b7e1ba8308c39b87",
+        "name": "Cron Dom 03:00 semanal",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "0 3 * * 0",
+        "once": false,
+        "onceDelay": 0,
+        "payload": "{\"trigger\":\"cron\",\"tipo\":\"semanal\"}",
+        "payloadType": "json",
+        "x": 210,
+        "y": 140,
+        "wires": [
+            [
+                "e9e659b30cc16e0a"
+            ]
+        ]
+    },
+    {
+        "id": "eae10eed8bb14df3",
+        "type": "inject",
+        "z": "b7e1ba8308c39b87",
+        "name": "Backup manual (botón)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "payload": "{\"trigger\":\"manual\",\"tipo\":\"manual\"}",
+        "payloadType": "json",
+        "x": 210,
+        "y": 200,
+        "wires": [
+            [
+                "e9e659b30cc16e0a"
+            ]
+        ]
+    },
+    {
+        "id": "e9e659b30cc16e0a",
+        "type": "function",
+        "z": "b7e1ba8308c39b87",
+        "name": "Script de respaldo Postgres",
+        "func": "const tipo = msg.payload.tipo || 'manual';\nconst ahora = new Date();\nconst timestamp = ahora.toISOString()\n    .replace(/[:.]/g, '-')\n    .replace('T', '_')\n    .substring(0, 19);\n\nconst BACKUP_DIR = env.get('BACKUP_DIR') || '/data/backups';\nconst MAX_BACKUPS = parseInt(env.get('MAX_BACKUPS') || '30');\n\nconst backupFile = `${BACKUP_DIR}/bibliosys_${tipo}_${timestamp}.sql`;\n\n// Comando pg_dump apuntando al host 'postgres'\nmsg.payload = [\n    `mkdir -p ${BACKUP_DIR}`,\n    `PGPASSWORD=\"tu_password_seguro\" pg_dump -h postgres -U admin_biblioteca -d bibliosys -F p > ${backupFile}`,\n    `gzip -9 ${backupFile}`,\n    `ls -t ${BACKUP_DIR}/bibliosys_*.sql.gz | tail -n +${MAX_BACKUPS + 1} | xargs -r rm --`\n].join(' && ');\n\nmsg.backup_meta = { tipo, timestamp, archivo: backupFile + '.gz' };\nnode.log(`Iniciando backup Postgres ${tipo}: ${backupFile}.gz`);\nreturn msg;",
+        "outputs": 1,
+        "x": 470,
+        "y": 140,
+        "wires": [
+            [
+                "230f8d625e6e8325"
+            ]
+        ]
+    },
+    {
+        "id": "230f8d625e6e8325",
+        "type": "exec",
+        "z": "b7e1ba8308c39b87",
+        "command": "",
+        "addpay": true,
+        "append": "",
+        "useSpawn": false,
+        "timer": "60",
+        "winHide": false,
+        "oldrc": false,
+        "name": "Shell: Ejecutar backup",
+        "x": 710,
+        "y": 140,
+        "wires": [
+            [
+                "881a9a6726f75442"
+            ],
+            [
+                "881a9a6726f75442"
+            ],
+            [
+                "c97bc412262f2fc2"
+            ]
+        ]
+    },
+    {
+        "id": "881a9a6726f75442",
+        "type": "function",
+        "z": "b7e1ba8308c39b87",
+        "name": "Registrar resultado backup",
+        "func": "const meta = msg.backup_meta || {};\nmsg.query = `INSERT INTO audit_log (tipo, origen, mensaje)\n    VALUES ('backup', 'sistema', 'Respaldo ${meta.tipo || ''} completado: ${meta.archivo || ''}');`;\nnode.status({ fill: 'green', shape: 'dot', text: `OK ${meta.timestamp}` });\nnode.log(`Backup completado: ${meta.archivo}`);\nreturn msg;",
+        "outputs": 1,
+        "x": 950,
+        "y": 120,
+        "wires": [
+            [
+                "86fdf17196e97d90"
+            ]
+        ]
+    },
+    {
+        "id": "c97bc412262f2fc2",
+        "type": "function",
+        "z": "b7e1ba8308c39b87",
+        "name": "Manejar error backup",
+        "func": "const err = msg.payload || 'Error desconocido';\nnode.error(`Error en backup: ${err}`);\nnode.status({ fill: 'red', shape: 'ring', text: 'ERROR backup' });\nmsg.query = `INSERT INTO audit_log (tipo, origen, mensaje)\n    VALUES ('backup', 'sistema', 'ERROR en respaldo: ${String(err).replace(/'/g, \"''\")}');`;\nreturn msg;",
+        "outputs": 1,
+        "x": 950,
+        "y": 180,
+        "wires": [
+            [
+                "86fdf17196e97d90"
+            ]
+        ]
+    },
+    {
+        "id": "86fdf17196e97d90",
+        "type": "postgresql",
+        "z": "b7e1ba8308c39b87",
+        "name": "DB: Log de backup",
+        "query": "",
+        "postgreSQLConfig": "b8e8292e38785dcd",
+        "split": false,
+        "rowsPerMsg": 1,
+        "outputs": 1,
+        "x": 1170,
+        "y": 140,
+        "wires": [
+            []
+        ]
+    }
+]

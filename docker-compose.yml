@@ -9,11 +9,11 @@ services:
       - ./nodered:/data       # Persistencia de flujos y base de datos SQLite
       - ./sql:/data/sql       # Para que Node-RED pueda leer tus scripts .sql
     env_file:
-      - .env                  # <--- ESTO ES LO QUE FALTABA
+      - .env
     environment:
       - TZ=America/Mexico_City
-      - GEMINI_API_KEY=${GEMINI_API_KEY} 
-    
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+
     # --- ACCESO A HARDWARE ---
     privileged: true # Opción A: Le da acceso total al hardware host. Ideal para no pelear con SPI/USB de inicio.
     # devices:       # Opción B: Mapeo estricto. Descomenta si prefieres pasar puertos específicos.
@@ -47,3 +47,4 @@ services:
       TZ: America/Mexico_City
     volumes:
       - ./docker/postgres/data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d   # ← LÍNEA AGREGADA

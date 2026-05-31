@@ -6,6 +6,7 @@
     "dependencies": {
         "node-red-contrib-postgresql": "~0.15.4",
         "node-red-dashboard": "~3.6.6",
+        "node-red-node-email": "~5.2.4",
         "node-red-node-sqlite": "~2.0.1"
     }
 }

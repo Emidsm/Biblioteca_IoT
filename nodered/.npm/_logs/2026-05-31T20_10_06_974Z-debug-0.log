@@ -1,0 +1,30 @@
+0 verbose cli /usr/local/bin/node /usr/src/node-red/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.9.8
+2 info using node@v20.20.2
+3 silly config load:file:/usr/src/node-red/node_modules/npm/npmrc
+4 silly config load:file:/data/.npmrc
+5 silly config load:file:/usr/src/node-red/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm install node-red-node-email@5.2.4
+8 verbose argv "install" "--no-audit" "--no-update-notifier" "--no-fund" "--save" "--save-prefix" "~" "--omit" "dev" "--engine-strict" "--" "node-red-node-email@5.2.4"
+9 verbose logfile logs-max:10 dir:/data/.npm/_logs/2026-05-31T20_10_06_974Z-
+10 verbose logfile /data/.npm/_logs/2026-05-31T20_10_06_974Z-debug-0.log
+11 silly logfile done cleaning log files
+12 silly packumentCache heap:2197815296 maxSize:549453824 maxEntrySize:274726912
+13 silly idealTree buildDeps
+14 silly fetch manifest node-red-node-email@5.2.4
+15 silly packumentCache full:https://registry.npmjs.org/node-red-node-email cache-miss
+16 http fetch GET 200 https://registry.npmjs.org/node-red-node-email 493ms (cache miss)
+17 silly packumentCache full:https://registry.npmjs.org/node-red-node-email set size:undefined disposed:false
+18 silly placeDep ROOT node-red-node-email@5.2.4 OK for: node-red-project@0.0.1 want: 5.2.4
+19 silly reify moves {}
+20 http cache node-red-node-email@https://registry.npmjs.org/node-red-node-email/-/node-red-node-email-5.2.4.tgz 1ms (cache hit)
+21 silly tarball no local data for node-red-node-email@https://registry.npmjs.org/node-red-node-email/-/node-red-node-email-5.2.4.tgz. Extracting by manifest.
+22 http fetch GET 200 https://registry.npmjs.org/node-red-node-email/-/node-red-node-email-5.2.4.tgz 1138ms (cache miss)
+23 silly ADD node_modules/node-red-node-email
+24 verbose cwd /data
+25 verbose os Linux 6.18.9+kali-amd64
+26 verbose node v20.20.2
+27 verbose npm  v10.9.8
+28 verbose exit 0
+29 info ok
