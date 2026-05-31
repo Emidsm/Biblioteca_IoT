@@ -1293,13 +1293,19 @@
         "type": "function",
         "z": "b7e1ba8308c39b87",
         "name": "Script de respaldo Postgres",
-        "func": "const tipo = msg.payload.tipo || 'manual';\nconst ahora = new Date();\nconst timestamp = ahora.toISOString()\n    .replace(/[:.]/g, '-')\n    .replace('T', '_')\n    .substring(0, 19);\n\nconst BACKUP_DIR = env.get('BACKUP_DIR') || '/data/backups';\nconst MAX_BACKUPS = parseInt(env.get('MAX_BACKUPS') || '30');\n\nconst backupFile = `${BACKUP_DIR}/bibliosys_${tipo}_${timestamp}.sql`;\n\n// Comando pg_dump apuntando al host 'postgres'\nmsg.payload = [\n    `mkdir -p ${BACKUP_DIR}`,\n    `PGPASSWORD=\"tu_password_seguro\" pg_dump -h postgres -U admin_biblioteca -d bibliosys -F p > ${backupFile}`,\n    `gzip -9 ${backupFile}`,\n    `ls -t ${BACKUP_DIR}/bibliosys_*.sql.gz | tail -n +${MAX_BACKUPS + 1} | xargs -r rm --`\n].join(' && ');\n\nmsg.backup_meta = { tipo, timestamp, archivo: backupFile + '.gz' };\nnode.log(`Iniciando backup Postgres ${tipo}: ${backupFile}.gz`);\nreturn msg;",
+        "func": "const tipo = msg.payload.tipo || 'manual';\nconst ahora = new Date();\nconst timestamp = ahora.toISOString()\n    .replace(/[:.]/g, '-')\n    .replace('T', '_')\n    .substring(0, 19);\n\nconst BACKUP_DIR = env.get('BACKUP_DIR') || '/data/backups';\nconst MAX_BACKUPS = parseInt(env.get('MAX_BACKUPS') || '30');\n\nconst backupFile = `/data/backups/bibliosys_${tipo}_${timestamp}.sql`;\n\n// pg_dump corre DENTRO del contenedor postgres, el resultado se guarda\n// en el volumen compartido /data/backups (que es ./nodered/backups en el host)\nmsg.payload = [\n    `mkdir -p ${BACKUP_DIR}`,\n    `PGPASSWORD=\"tu_password_seguro\" pg_dump -h postgres -U admin_biblioteca -d bibliosys -F p > ${backupFile}`,\n    `gzip -9 ${backupFile}`,\n    `ls -t ${BACKUP_DIR}/bibliosys_*.sql.gz | tail -n +${MAX_BACKUPS + 1} | xargs -r rm --`\n].join(' && ');\n\nmsg.backup_meta = { tipo, timestamp, archivo: backupFile + '.gz' };\nnode.log(`Iniciando backup Postgres ${tipo}: ${backupFile}.gz`);\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 470,
         "y": 140,
         "wires": [
             [
-                "230f8d625e6e8325"
+                "230f8d625e6e8325",
+                "4ff09ba18f0fe5fe"
             ]
         ]
     },
@@ -1319,13 +1325,16 @@
         "y": 140,
         "wires": [
             [
-                "881a9a6726f75442"
+                "881a9a6726f75442",
+                "4ff09ba18f0fe5fe"
             ],
             [
-                "881a9a6726f75442"
+                "881a9a6726f75442",
+                "4ff09ba18f0fe5fe"
             ],
             [
-                "c97bc412262f2fc2"
+                "c97bc412262f2fc2",
+                "4ff09ba18f0fe5fe"
             ]
         ]
     },
@@ -1336,11 +1345,17 @@
         "name": "Registrar resultado backup",
         "func": "const meta = msg.backup_meta || {};\nmsg.query = `INSERT INTO audit_log (tipo, origen, mensaje)\n    VALUES ('backup', 'sistema', 'Respaldo ${meta.tipo || ''} completado: ${meta.archivo || ''}');`;\nnode.status({ fill: 'green', shape: 'dot', text: `OK ${meta.timestamp}` });\nnode.log(`Backup completado: ${meta.archivo}`);\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 950,
         "y": 120,
         "wires": [
             [
-                "86fdf17196e97d90"
+                "86fdf17196e97d90",
+                "4ff09ba18f0fe5fe"
             ]
         ]
     },
@@ -1349,13 +1364,19 @@
         "type": "function",
         "z": "b7e1ba8308c39b87",
         "name": "Manejar error backup",
-        "func": "const err = msg.payload || 'Error desconocido';\nnode.error(`Error en backup: ${err}`);\nnode.status({ fill: 'red', shape: 'ring', text: 'ERROR backup' });\nmsg.query = `INSERT INTO audit_log (tipo, origen, mensaje)\n    VALUES ('backup', 'sistema', 'ERROR en respaldo: ${String(err).replace(/'/g, \"''\")}');`;\nreturn msg;",
+        "func": "const payload = msg.payload;\n\n// code: 0 significa éxito, no error\nif (typeof payload === 'object' && payload.code === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: 'OK' });\n    return null; // No hacer nada, fue exitoso\n}\n\nconst err = (typeof payload === 'object')\n    ? JSON.stringify(payload)\n    : String(payload || 'Error desconocido');\n\nnode.error(`Error en backup: ${err}`);\nnode.status({ fill: 'red', shape: 'ring', text: 'ERROR backup' });\n\nmsg.query = `INSERT INTO audit_log (tipo, origen, mensaje)\n    VALUES ('backup', 'sistema', 'ERROR en respaldo: ${err.replace(/'/g, \"''\")}');`;\nreturn msg;",
         "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 950,
         "y": 180,
         "wires": [
             [
-                "86fdf17196e97d90"
+                "86fdf17196e97d90",
+                "4ff09ba18f0fe5fe"
             ]
         ]
     },
@@ -1369,10 +1390,28 @@
         "split": false,
         "rowsPerMsg": 1,
         "outputs": 1,
-        "x": 1170,
+        "x": 1210,
         "y": 140,
         "wires": [
-            []
+            [
+                "4ff09ba18f0fe5fe"
+            ]
         ]
+    },
+    {
+        "id": "4ff09ba18f0fe5fe",
+        "type": "debug",
+        "z": "b7e1ba8308c39b87",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1440,
+        "y": 280,
+        "wires": []
     }
 ]

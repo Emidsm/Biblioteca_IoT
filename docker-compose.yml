@@ -1,32 +1,32 @@
 services:
   nodered:
-    image: nodered/node-red:latest
+    build: .
     container_name: biblioteca_nodered
     restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
     ports:
       - "1880:1880"
     volumes:
-      - ./nodered:/data       # Persistencia de flujos y base de datos SQLite
-      - ./sql:/data/sql       # Para que Node-RED pueda leer tus scripts .sql
+      - ./nodered:/data
+      - ./sql:/data/sql
     env_file:
       - .env
     environment:
       - TZ=America/Mexico_City
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-
-    # --- ACCESO A HARDWARE ---
-    privileged: true # Opción A: Le da acceso total al hardware host. Ideal para no pelear con SPI/USB de inicio.
-    # devices:       # Opción B: Mapeo estricto. Descomenta si prefieres pasar puertos específicos.
-    #   - "/dev/ttyUSB0:/dev/ttyUSB0" # Ejemplo para el escáner QR o Impresora
-    #   - "/dev/spidev0.0:/dev/spidev0.0" # Ejemplo para el RC522
+    privileged: true
 
   mosquitto:
     image: eclipse-mosquitto:latest
     container_name: biblioteca_mqtt
     restart: always
     ports:
-      - "1883:1883" # Puerto MQTT estándar
-      - "9001:9001" # WebSockets (por si la interfaz web ocupa suscribirse directo)
+      - "1883:1883"
+      - "9001:9001"
     volumes:
       - ./docker/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./docker/mosquitto/data:/mosquitto/data
@@ -45,6 +45,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
       TZ: America/Mexico_City
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     volumes:
       - ./docker/postgres/data:/var/lib/postgresql/data
-      - ./sql:/docker-entrypoint-initdb.d   # ← LÍNEA AGREGADA
+      - ./sql:/docker-entrypoint-initdb.d
